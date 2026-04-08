@@ -11,6 +11,7 @@ export function usePerformanceTimer() {
   const [lastResult, setLastResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [accuracy, setAccuracy] = useState<number | null>(null);
+  const [gForce, setGForce] = useState(0);
   const [gpsStatus, setGpsStatus] = useState<'searching' | 'active' | 'error'>('searching');
   const [lastPosition, setLastPosition] = useState<{ latitude: number, longitude: number } | null>(null);
 
@@ -20,6 +21,8 @@ export function usePerformanceTimer() {
   const pointsRef = useRef<GPSPoint[]>([]);
   const configRef = useRef<RunConfig | null>(null);
   const timerIntervalRef = useRef<number | null>(null);
+  const maxGRef = useRef(0);
+  const rolloutStartedRef = useRef(false);
 
   const [isReady, setIsReady] = useState(false);
   const isReadyRef = useRef(false);
@@ -91,6 +94,9 @@ export function usePerformanceTimer() {
     distanceRef.current = 0;
     setElapsedTime(0);
     setLastResult(null);
+    setGForce(0);
+    maxGRef.current = 0;
+    rolloutStartedRef.current = false;
     pointsRef.current = [];
     lastPointRef.current = null;
     lastStoppedTimestampRef.current = null;
@@ -167,7 +173,14 @@ export function usePerformanceTimer() {
               const now = position.timestamp;
               const lastStopped = lastStoppedTimestampRef.current || (now - 500); // Fallback to 500ms ago
               
-              startTimeRef.current = lastStopped;
+              // 1-Foot Rollout logic
+              if (config.useRollout) {
+                rolloutStartedRef.current = true;
+                startTimeRef.current = null; // Don't start timer yet
+              } else {
+                startTimeRef.current = lastStopped;
+              }
+
               pointsRef.current = [currentPoint];
               lastPointRef.current = currentPoint;
               distanceRef.current = 0;
@@ -225,13 +238,21 @@ export function usePerformanceTimer() {
           pointsRef.current.push(currentPoint);
           
           if (lastPointRef.current) {
+            // Calculate G-Force
+            const timeDelta = (currentPoint.timestamp - lastPointRef.current.timestamp) / 1000;
+            if (timeDelta > 0) {
+              const speedDelta = currentPoint.speed - lastPointRef.current.speed;
+              const g = speedDelta / (timeDelta * 9.81);
+              setGForce(g);
+              if (g > maxGRef.current) maxGRef.current = g;
+            }
+
             // Hybrid distance calculation:
             // 1. Position-based (Haversine)
             const dPos = calculateDistance(lastPointRef.current, currentPoint);
             
             // 2. Speed-based (Average speed * time delta)
             // GPS Speed is often more accurate for short-term changes than position
-            const timeDelta = (currentPoint.timestamp - lastPointRef.current.timestamp) / 1000; // seconds
             const avgSpeedMs = (currentPoint.speed + lastPointRef.current.speed) / 2;
             const dSpeed = avgSpeedMs * timeDelta;
 
@@ -242,6 +263,13 @@ export function usePerformanceTimer() {
             const newDist = distanceRef.current + d;
             distanceRef.current = newDist;
             setDistance(newDist);
+
+            // Handle 1-foot rollout trigger
+            if (rolloutStartedRef.current && !startTimeRef.current && newDist >= 0.3048) {
+              startTimeRef.current = currentPoint.timestamp;
+              rolloutStartedRef.current = false;
+              console.log("1-foot rollout reached! Timer started.");
+            }
             
             // Check distance-based completion
             if (config.mode === 'distance' && newDist >= config.target) {
@@ -299,6 +327,9 @@ export function usePerformanceTimer() {
     distanceRef.current = 0;
     setElapsedTime(0);
     setLastResult(null);
+    setGForce(0);
+    maxGRef.current = 0;
+    rolloutStartedRef.current = false;
     configRef.current = null;
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
   };
@@ -335,6 +366,7 @@ export function usePerformanceTimer() {
     isWaiting,
     isReady,
     elapsedTime,
+    gForce,
     lastResult,
     error,
     accuracy,

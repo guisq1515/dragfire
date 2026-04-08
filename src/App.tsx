@@ -49,6 +49,7 @@ import {
   Settings, 
   Play, 
   RotateCcw, 
+  Activity,
   AlertCircle,
   MapPin,
   ChevronLeft,
@@ -75,6 +76,7 @@ import {
   AlertTriangle,
   RefreshCcw
 } from 'lucide-react';
+import { PerformanceChart } from './components/PerformanceChart';
 
 // --- Error Boundary ---
 class ErrorBoundary extends React.Component<any, any> {
@@ -1602,6 +1604,7 @@ export default function App() {
     isRunning,
     isWaiting,
     elapsedTime,
+    gForce,
     lastResult,
     error,
     accuracy,
@@ -1616,6 +1619,7 @@ export default function App() {
 
   const [screen, setScreen] = useState<Screen>('home');
   const [activeConfig, setActiveConfig] = useState<typeof PRESETS[0] | null>(null);
+  const [useRollout, setUseRollout] = useState(true);
   const [activeChallenge, setActiveChallenge] = useState<Challenge | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isGuest, setIsGuest] = useState(false);
@@ -1944,7 +1948,8 @@ export default function App() {
       const config: RunConfig = {
         mode: preset.mode,
         target: preset.target,
-        startSpeed: preset.startSpeed
+        startSpeed: preset.startSpeed,
+        useRollout: false
       };
       startRun(config);
     }
@@ -1955,7 +1960,8 @@ export default function App() {
     const config: RunConfig = {
       mode: activeConfig.mode,
       target: activeConfig.target,
-      startSpeed: activeConfig.startSpeed
+      startSpeed: activeConfig.startSpeed,
+      useRollout: activeConfig.type === 'standing' ? useRollout : false
     };
     startRun(config);
   };
@@ -2527,6 +2533,12 @@ export default function App() {
                       {Math.round(currentSpeed)}
                     </motion.span>
                     <span className="text-zinc-500 font-bold uppercase tracking-widest text-sm">km/h</span>
+                    {isRunning && (
+                      <div className="mt-2 flex items-center justify-center gap-1">
+                        <Activity className="w-3 h-3 text-brand-accent" />
+                        <span className="text-brand-accent font-mono font-bold text-sm tracking-tighter">{gForce.toFixed(2)}G</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="absolute bottom-10 flex gap-8 text-zinc-400 font-mono">
@@ -2649,14 +2661,18 @@ export default function App() {
                           <p className="text-3xl font-display font-black text-white italic leading-none">{Math.round(lastResult.maxSpeed)} <span className="text-xs">km/h</span></p>
                         </div>
                         <div className="space-y-0.5">
-                          <span className="text-zinc-500 text-[9px] uppercase font-bold">Velo. Média</span>
-                          <p className="text-xl font-display font-bold text-zinc-300 italic leading-none">{Math.round(lastResult.avgSpeed)} km/h</p>
+                          <span className="text-zinc-500 text-[9px] uppercase font-bold">Inclinação (Slope)</span>
+                          <p className={`text-xl font-display font-black italic leading-none ${lastResult.isValidSlope ? 'text-white' : 'text-red-500'}`}>
+                            {lastResult.slope?.toFixed(1)}%
+                          </p>
                         </div>
                         <div className="space-y-0.5">
-                          <span className="text-zinc-500 text-[9px] uppercase font-bold">Distância</span>
-                          <p className="text-xl font-display font-bold text-zinc-300 italic leading-none">{Math.round(lastResult.distance)}m</p>
+                          <span className="text-zinc-500 text-[9px] uppercase font-bold">Pico de G-Force</span>
+                          <p className="text-xl font-display font-black text-white italic leading-none">{lastResult.maxG?.toFixed(2)}G</p>
                         </div>
                       </div>
+
+                      <PerformanceChart result={lastResult} />
 
                       <RunMap result={lastResult} />
 
@@ -2700,6 +2716,25 @@ export default function App() {
                         <h4 className="font-bold text-zinc-400 uppercase text-[10px] tracking-widest mb-1">Atenção</h4>
                         <p className="text-zinc-500 text-[10px] font-medium">O teste de arrancada só inicia com o veículo parado.</p>
                       </div>
+
+                      {activeConfig?.type === 'standing' && (
+                        <div className="mb-6 flex items-center justify-between p-3 bg-zinc-950/50 rounded-xl border border-white/5">
+                          <div className="flex flex-col items-start">
+                            <span className="text-[10px] font-black text-white uppercase tracking-widest">1-Foot Rollout</span>
+                            <span className="text-[9px] text-zinc-500 font-medium">Padrão Dragstrip (30cm)</span>
+                          </div>
+                          <button 
+                            onClick={() => setUseRollout(!useRollout)}
+                            className={`w-10 h-5 rounded-full transition-colors relative ${useRollout ? 'bg-brand-primary' : 'bg-zinc-800'}`}
+                          >
+                            <motion.div 
+                              className="absolute top-1 left-1 w-3 h-3 bg-white rounded-full shadow-sm"
+                              animate={{ x: useRollout ? 20 : 0 }}
+                              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                            />
+                          </button>
+                        </div>
+                      )}
 
                       <button 
                         onClick={handleStart}

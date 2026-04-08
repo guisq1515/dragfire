@@ -4,6 +4,7 @@ export interface RunConfig {
   mode: RunMode;
   target: number; // km/h for speed mode, meters for distance mode
   startSpeed?: number; // Optional start speed for rolling starts (km/h)
+  useRollout?: boolean; // 1-foot rollout (approx 30cm)
 }
 
 export interface RunResult {
@@ -17,6 +18,7 @@ export interface RunResult {
   path: GPSPoint[]; // full path coordinates
   slope?: number; // percentage (positive = uphill, negative = downhill)
   isValidSlope?: boolean;
+  maxG?: number;
   location?: {
     latitude: number;
     longitude: number;
