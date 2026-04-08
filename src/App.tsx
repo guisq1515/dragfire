@@ -1631,19 +1631,6 @@ export default function App() {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [guestTermsAccepted, setGuestTermsAccepted] = useState(false);
 
-  // Handle Firebase Auth Redirect result
-  useEffect(() => {
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result) {
-          console.log("Logged in after redirect:", result.user.email);
-        }
-      })
-      .catch((error) => {
-        console.error("Redirect login error:", error);
-      });
-  }, []);
-
   // Test Connection
   useEffect(() => {
     async function testConnection() {
