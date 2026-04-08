@@ -12,10 +12,13 @@ import {
   signInWithPopup, 
   signInWithRedirect,
   getRedirectResult,
+  signInWithCredential,
+  GoogleAuthProvider,
   signOut, 
   onAuthStateChanged, 
   User as FirebaseUser 
 } from 'firebase/auth';
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 import { 
   doc, 
   setDoc, 
@@ -1789,7 +1792,19 @@ export default function App() {
     setIsLoggingIn(true);
     try {
       if (typeof window !== 'undefined' && (window as any).Capacitor && (window as any).Capacitor.isNativePlatform()) {
-        await signInWithRedirect(auth, googleProvider);
+        try {
+          await GoogleAuth.init();
+        } catch(e) {
+          console.warn("GoogleAuth already initialized", e);
+        }
+        
+        const googleUser = await GoogleAuth.signIn();
+        if (googleUser && googleUser.authentication) {
+          const credential = GoogleAuthProvider.credential(googleUser.authentication.idToken);
+          await signInWithCredential(auth, credential);
+        } else {
+          throw new Error("Não foi possível obter as credenciais do Google.");
+        }
       } else {
         await signInWithPopup(auth, googleProvider);
       }
@@ -1801,8 +1816,11 @@ export default function App() {
         alert('O login foi bloqueado pelo seu navegador. Por favor, permita pop-ups para este site.');
       } else if (error.code === 'auth/cancelled-popup-request') {
         // User closed the popup, ignore
+      } else if (error.message && error.message.includes("cancelled")) {
+        // User closed native prompt
+        console.log("Native Google Sign in was cancelled");
       } else {
-        alert('Erro ao fazer login: ' + error.message);
+        alert('Erro ao fazer login: ' + (error.message || JSON.stringify(error)));
       }
     }
   };
