@@ -1,0 +1,7 @@
+{
+  "name": "DragFire",
+  "description": "Automotive performance timer using GPS for speed and distance measurements. Track 0-100km/h, quarter mile, and more.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

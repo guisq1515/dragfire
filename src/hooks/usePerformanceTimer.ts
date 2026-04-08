@@ -1,0 +1,307 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { RunConfig, RunResult, GPSPoint } from '../types';
+import { calculateDistance } from '../lib/utils';
+
+export function usePerformanceTimer() {
+  const [currentSpeed, setCurrentSpeed] = useState(0); // km/h
+  const [distance, setDistance] = useState(0); // meters
+  const [isRunning, setIsRunning] = useState(false);
+  const [isWaiting, setIsWaiting] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [lastResult, setLastResult] = useState<RunResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
+  const [gpsStatus, setGpsStatus] = useState<'searching' | 'active' | 'error'>('searching');
+  const [lastPosition, setLastPosition] = useState<{ latitude: number, longitude: number } | null>(null);
+
+  const startTimeRef = useRef<number | null>(null);
+  const lastPointRef = useRef<GPSPoint | null>(null);
+  const pointsRef = useRef<GPSPoint[]>([]);
+  const configRef = useRef<RunConfig | null>(null);
+  const timerIntervalRef = useRef<number | null>(null);
+
+  const [isReady, setIsReady] = useState(false);
+  const isReadyRef = useRef(false);
+  const isWaitingRef = useRef(false);
+  const isRunningRef = useRef(false);
+
+  const distanceRef = useRef(0);
+
+  const stopRun = useCallback((finalTime: number) => {
+    if (!configRef.current) return;
+
+    setIsRunning(false);
+    isRunningRef.current = false;
+    setIsReady(false);
+    isReadyRef.current = false;
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+
+    const speeds = pointsRef.current.map(p => p.speed * 3.6);
+    const maxSpeed = Math.max(...speeds, 0);
+    const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+
+    // Calculate slope
+    let slope = 0;
+    let isValidSlope = true;
+    if (pointsRef.current.length >= 2) {
+      const startPoint = pointsRef.current[0];
+      const endPoint = pointsRef.current[pointsRef.current.length - 1];
+      
+      if (startPoint.altitude !== null && endPoint.altitude !== null && distanceRef.current > 0) {
+        const elevationChange = endPoint.altitude - startPoint.altitude;
+        slope = (elevationChange / distanceRef.current) * 100;
+        // Invalidate if downhill (slope < -1% as a buffer for GPS noise)
+        if (slope < -1) {
+          isValidSlope = false;
+        }
+      }
+    }
+
+    const result: RunResult = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      config: { ...configRef.current },
+      time: finalTime,
+      maxSpeed,
+      avgSpeed,
+      distance: distanceRef.current,
+      path: [...pointsRef.current],
+      slope,
+      isValidSlope,
+      location: pointsRef.current.length > 0 ? {
+        latitude: pointsRef.current[0].latitude,
+        longitude: pointsRef.current[0].longitude
+      } : undefined
+    };
+
+    setLastResult(result);
+    configRef.current = null;
+  }, []); // Remove distance dependency
+
+  const startRun = useCallback((config: RunConfig) => {
+    configRef.current = config;
+    setIsWaiting(true);
+    isWaitingRef.current = true;
+    setIsReady(false);
+    isReadyRef.current = false;
+    setIsRunning(false);
+    isRunningRef.current = false;
+    setDistance(0);
+    distanceRef.current = 0;
+    setElapsedTime(0);
+    setLastResult(null);
+    pointsRef.current = [];
+    lastPointRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setError("GPS não suportado neste dispositivo.");
+      return;
+    }
+
+    const options = {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 15000,
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setGpsStatus('active');
+        const { latitude, longitude, speed, accuracy, altitude } = position.coords;
+        const currentPoint: GPSPoint = {
+          latitude,
+          longitude,
+          altitude: altitude,
+          speed: speed || 0,
+          timestamp: position.timestamp,
+        };
+
+        setAccuracy(accuracy);
+        setLastPosition({ latitude, longitude });
+        const speedKmh = (speed || 0) * 3.6;
+        setCurrentSpeed(speedKmh);
+
+        const config = configRef.current;
+        if (!config) return;
+
+        // Standing start logic: must stop first
+        if (isWaitingRef.current && !isRunningRef.current) {
+          const isStandingStart = config.startSpeed === 0;
+          
+          if (isStandingStart) {
+            // If speed is very low, we are ready
+            if (speedKmh < 1.5) {
+              if (!isReadyRef.current) {
+                setIsReady(true);
+                isReadyRef.current = true;
+              }
+            }
+            
+            // Start if we were ready and now moving
+            if (isReadyRef.current && speedKmh >= 2.5) {
+              setIsWaiting(false);
+              isWaitingRef.current = false;
+              setIsRunning(true);
+              isRunningRef.current = true;
+              startTimeRef.current = Date.now();
+              pointsRef.current = [currentPoint];
+              lastPointRef.current = currentPoint;
+              distanceRef.current = 0;
+              setDistance(0);
+              
+              if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = window.setInterval(() => {
+                if (startTimeRef.current) {
+                  setElapsedTime((Date.now() - startTimeRef.current) / 1000);
+                }
+              }, 50);
+            }
+          } else {
+            // Rolling start logic
+            if (speedKmh >= config.startSpeed) {
+              setIsWaiting(false);
+              isWaitingRef.current = false;
+              setIsRunning(true);
+              isRunningRef.current = true;
+              startTimeRef.current = Date.now();
+              pointsRef.current = [currentPoint];
+              lastPointRef.current = currentPoint;
+              distanceRef.current = 0;
+              setDistance(0);
+              
+              if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = window.setInterval(() => {
+                if (startTimeRef.current) {
+                  setElapsedTime((Date.now() - startTimeRef.current) / 1000);
+                }
+              }, 50);
+            }
+          }
+        }
+
+        if (isRunningRef.current) {
+          pointsRef.current.push(currentPoint);
+          
+          if (lastPointRef.current) {
+            // Hybrid distance calculation:
+            // 1. Position-based (Haversine)
+            const dPos = calculateDistance(lastPointRef.current, currentPoint);
+            
+            // 2. Speed-based (Average speed * time delta)
+            // GPS Speed is often more accurate for short-term changes than position
+            const timeDelta = (currentPoint.timestamp - lastPointRef.current.timestamp) / 1000; // seconds
+            const avgSpeedMs = (currentPoint.speed + lastPointRef.current.speed) / 2;
+            const dSpeed = avgSpeedMs * timeDelta;
+
+            // Use a weighted average or speed-based if accuracy is good
+            // Speed-based is usually better for drag racing distance increments
+            const d = (accuracy && accuracy < 10) ? (dSpeed * 0.7 + dPos * 0.3) : dPos;
+
+            const newDist = distanceRef.current + d;
+            distanceRef.current = newDist;
+            setDistance(newDist);
+            
+            // Check distance-based completion
+            if (config.mode === 'distance' && newDist >= config.target) {
+                const finalTime = (Date.now() - (startTimeRef.current || 0)) / 1000;
+                stopRun(finalTime);
+                return; // Stop processing this update
+            }
+          }
+
+          // Check speed-based completion
+          if (config.mode === 'speed' && speedKmh >= config.target) {
+            const finalTime = (Date.now() - (startTimeRef.current || 0)) / 1000;
+            stopRun(finalTime);
+            return;
+          }
+
+          lastPointRef.current = currentPoint;
+        }
+      },
+      (err) => {
+        setGpsStatus('error');
+        // Ignore timeout errors as watchPosition will continue to try
+        if (err.code === err.TIMEOUT) {
+          console.warn("GPS Timeout: Tentando obter sinal...");
+          return;
+        }
+
+        let msg = err.message;
+        if (err.code === err.PERMISSION_DENIED) {
+          msg = "Permissão de localização negada. Verifique as configurações do navegador e do sistema.";
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          msg = "Sinal de GPS indisponível. Verifique se o GPS está ligado e se você está em local aberto.";
+        }
+        
+        setError(msg);
+      },
+      options
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [stopRun]); // Stable dependencies
+
+  const reset = () => {
+    setIsRunning(false);
+    isRunningRef.current = false;
+    setIsWaiting(false);
+    isWaitingRef.current = false;
+    setIsReady(false);
+    isReadyRef.current = false;
+    setDistance(0);
+    distanceRef.current = 0;
+    setElapsedTime(0);
+    setLastResult(null);
+    configRef.current = null;
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+  };
+
+  const setMockResult = (result: RunResult) => {
+    setLastResult(result);
+  };
+
+  const requestPermission = useCallback(() => {
+    setError(null);
+    navigator.geolocation.getCurrentPosition(
+      () => {
+        // Permission granted, watchPosition will handle the rest
+      },
+      (err) => {
+        if (err.code === err.TIMEOUT) return;
+        
+        let msg = err.message;
+        if (err.code === err.PERMISSION_DENIED) {
+          msg = "Permissão de localização negada pelo usuário.";
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          msg = "Sinal de GPS indisponível no momento.";
+        }
+        setError(msg);
+      },
+      { enableHighAccuracy: true, timeout: 5000 }
+    );
+  }, []);
+
+  return {
+    currentSpeed,
+    distance,
+    isRunning,
+    isWaiting,
+    isReady,
+    elapsedTime,
+    lastResult,
+    error,
+    accuracy,
+    gpsStatus,
+    lastPosition,
+    startRun,
+    reset,
+    setMockResult,
+    requestPermission
+  };
+}

@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "termsAccepted": { "type": "boolean" },
+        "termsVersion": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Vehicle details registered by the user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "type": { "type": "string", "enum": ["car", "motorcycle"] },
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "year": { "type": "string" },
+        "nickname": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "type", "brand", "model", "nickname"]
+    },
+    "Run": {
+      "title": "Run",
+      "description": "Performance test result",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "config": { "type": "object" },
+        "time": { "type": "number" },
+        "maxSpeed": { "type": "number" },
+        "avgSpeed": { "type": "number" },
+        "distance": { "type": "number" },
+        "path": { "type": "array" }
+      },
+      "required": ["uid", "timestamp", "time", "maxSpeed"]
+    },
+    "Challenge": {
+      "title": "Challenge",
+      "description": "A duel challenge between two users",
+      "type": "object",
+      "properties": {
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "result": { "type": "object" },
+        "expiresAt": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "completed", "expired"] },
+        "opponentResult": { "type": "object" },
+        "acceptedAt": { "type": "number" }
+      },
+      "required": ["creatorId", "result", "status"]
+    },
+    "RankingEntry": {
+      "title": "RankingEntry",
+      "description": "A single entry in the 0-100 ranking",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string" },
+        "vehicleName": { "type": "string" },
+        "vehicleType": { "type": "string", "enum": ["car", "motorcycle"] },
+        "time": { "type": "number" },
+        "maxSpeed": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "slope": { "type": "number" }
+      },
+      "required": ["uid", "userName", "time", "latitude", "longitude", "vehicleType"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/vehicles/{uid}": {
+      "schema": "Vehicle",
+      "description": "User's registered vehicle"
+    },
+    "/runs/{runId}": {
+      "schema": "Run",
+      "description": "Performance run results"
+    },
+    "/challenges/{challengeId}": {
+      "schema": "Challenge",
+      "description": "Duel challenges"
+    },
+    "/rankings/{rankingId}": {
+      "schema": "RankingEntry",
+      "description": "Global and regional 0-100 rankings"
+    }
+  }
+}

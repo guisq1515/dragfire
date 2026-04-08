@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields: uid, email, displayName, photoURL, createdAt
+    //
+    // Collection: vehicles
+    // Document ID: {vehicleId}
+    // Fields: uid, type, brand, model, year, nickname, photoURL, active, createdAt, updatedAt
+    //
+    // Collection: runs
+    // Document ID: {runId}
+    // Fields: uid, timestamp, config, time, maxSpeed, avgSpeed, distance, path
+    //
+    // Collection: challenges
+    // Document ID: {challengeId}
+    // Fields: creatorId, creatorName, result, expiresAt, status, opponentResult, acceptedAt
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "guisq1515@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.termsAccepted is bool &&
+             data.termsVersion is string;
+    }
+
+    function isValidVehicle(data) {
+      return data.uid is string && 
+             data.type in ['car', 'motorcycle'] &&
+             data.nickname is string && data.nickname.size() > 0;
+    }
+
+    function isValidRun(data) {
+      return data.uid is string && 
+             data.time is number && data.time > 0 &&
+             data.maxSpeed is number && data.maxSpeed >= 0;
+    }
+
+    function isValidChallenge(data) {
+      return data.creatorId is string && 
+             data.status in ['pending', 'accepted', 'completed', 'expired'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /_connection_test/{docId} {
+      allow read: if isAuthenticated();
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidVehicle(request.resource.data);
+      allow update: if isDocOwner() && isValidVehicle(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /runs/{runId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidRun(request.resource.data);
+      allow update: if isDocOwner() && isValidRun(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /challenges/{challengeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.creatorId == request.auth.uid && isValidChallenge(request.resource.data);
+      allow update: if isAuthenticated() && (
+        // Creator can update status or details
+        (request.auth.uid == resource.data.creatorId) ||
+        // Opponent can update status to accepted/completed and add opponentResult
+        (resource.data.status == 'pending' && request.resource.data.status in ['accepted', 'completed'])
+      ) && isValidChallenge(request.resource.data);
+    }
+
+    match /rankings/{rankingId} {
+      allow read: if true; // Public rankings
+      allow create: if isAuthenticated() && 
+                      request.resource.data.uid == request.auth.uid &&
+                      request.resource.data.slope >= -1 &&
+                      request.resource.data.vehicleType in ['car', 'motorcycle'];
+      allow delete: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+  }
+}
