@@ -16,6 +16,7 @@ export function usePerformanceTimer() {
 
   const startTimeRef = useRef<number | null>(null);
   const lastPointRef = useRef<GPSPoint | null>(null);
+  const lastStoppedTimestampRef = useRef<number | null>(null);
   const pointsRef = useRef<GPSPoint[]>([]);
   const configRef = useRef<RunConfig | null>(null);
   const timerIntervalRef = useRef<number | null>(null);
@@ -92,6 +93,7 @@ export function usePerformanceTimer() {
     setLastResult(null);
     pointsRef.current = [];
     lastPointRef.current = null;
+    lastStoppedTimestampRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -110,17 +112,26 @@ export function usePerformanceTimer() {
       (position) => {
         setGpsStatus('active');
         const { latitude, longitude, speed, accuracy, altitude } = position.coords;
+        
+        // Fallback speed calculation if speed is null
+        let calculatedSpeed = speed;
+        if (calculatedSpeed === null && lastPointRef.current) {
+          const d = calculateDistance(lastPointRef.current, { latitude, longitude } as any);
+          const t = (position.timestamp - lastPointRef.current.timestamp) / 1000;
+          if (t > 0) calculatedSpeed = d / t;
+        }
+
         const currentPoint: GPSPoint = {
           latitude,
           longitude,
           altitude: altitude,
-          speed: speed || 0,
+          speed: calculatedSpeed || 0,
           timestamp: position.timestamp,
         };
 
         setAccuracy(accuracy);
         setLastPosition({ latitude, longitude });
-        const speedKmh = (speed || 0) * 3.6;
+        const speedKmh = (calculatedSpeed || 0) * 3.6;
         setCurrentSpeed(speedKmh);
 
         const config = configRef.current;
@@ -128,24 +139,35 @@ export function usePerformanceTimer() {
 
         // Standing start logic: must stop first
         if (isWaitingRef.current && !isRunningRef.current) {
-          const isStandingStart = config.startSpeed === 0;
+          const isStandingStart = config.startSpeed === 0 || config.startSpeed === undefined;
           
           if (isStandingStart) {
             // If speed is very low, we are ready
-            if (speedKmh < 1.5) {
+            // Threshold lowered to 1.2 km/h for better sensitivity
+            if (speedKmh < 1.2) {
+              lastStoppedTimestampRef.current = position.timestamp;
               if (!isReadyRef.current) {
+                console.log("Vehicle stopped, ready to start.");
                 setIsReady(true);
                 isReadyRef.current = true;
               }
             }
             
             // Start if we were ready and now moving
-            if (isReadyRef.current && speedKmh >= 2.5) {
+            // Threshold lowered to 1.8 km/h for faster trigger
+            if (isReadyRef.current && speedKmh >= 1.8) {
+              console.log("Movement detected! Starting timer at speed:", speedKmh);
               setIsWaiting(false);
               isWaitingRef.current = false;
               setIsRunning(true);
               isRunningRef.current = true;
-              startTimeRef.current = Date.now();
+              
+              // PRECISION FIX: Instead of starting NOW, we start from the last known stopped moment
+              // This recovers the time lost between 0 and 1.8 km/h
+              const now = position.timestamp;
+              const lastStopped = lastStoppedTimestampRef.current || (now - 500); // Fallback to 500ms ago
+              
+              startTimeRef.current = lastStopped;
               pointsRef.current = [currentPoint];
               lastPointRef.current = currentPoint;
               distanceRef.current = 0;
@@ -165,7 +187,25 @@ export function usePerformanceTimer() {
               isWaitingRef.current = false;
               setIsRunning(true);
               isRunningRef.current = true;
-              startTimeRef.current = Date.now();
+              
+              // For rolling starts, we interpolate the exact moment the threshold was crossed
+              const now = position.timestamp;
+              let exactStartTime = now;
+              
+              if (lastPointRef.current && speedKmh > (lastPointRef.current.speed * 3.6)) {
+                const prevSpeed = lastPointRef.current.speed * 3.6;
+                const prevTime = lastPointRef.current.timestamp;
+                const speedDiff = speedKmh - prevSpeed;
+                const timeDiff = now - prevTime;
+                const targetDiff = config.startSpeed - prevSpeed;
+                
+                if (speedDiff > 0) {
+                  const timeOffset = (targetDiff / speedDiff) * timeDiff;
+                  exactStartTime = prevTime + timeOffset;
+                }
+              }
+
+              startTimeRef.current = exactStartTime;
               pointsRef.current = [currentPoint];
               lastPointRef.current = currentPoint;
               distanceRef.current = 0;
@@ -254,6 +294,7 @@ export function usePerformanceTimer() {
     isWaitingRef.current = false;
     setIsReady(false);
     isReadyRef.current = false;
+    lastStoppedTimestampRef.current = null;
     setDistance(0);
     distanceRef.current = 0;
     setElapsedTime(0);

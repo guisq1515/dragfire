@@ -1944,7 +1944,7 @@ export default function App() {
       const config: RunConfig = {
         mode: preset.mode,
         target: preset.target,
-        startSpeed: preset.startSpeed > 0 ? preset.startSpeed : undefined
+        startSpeed: preset.startSpeed
       };
       startRun(config);
     }
@@ -1955,7 +1955,7 @@ export default function App() {
     const config: RunConfig = {
       mode: activeConfig.mode,
       target: activeConfig.target,
-      startSpeed: activeConfig.startSpeed > 0 ? activeConfig.startSpeed : undefined
+      startSpeed: activeConfig.startSpeed
     };
     startRun(config);
   };
