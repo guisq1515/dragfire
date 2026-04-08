@@ -1628,6 +1628,19 @@ export default function App() {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [guestTermsAccepted, setGuestTermsAccepted] = useState(false);
 
+  // Handle Firebase Auth Redirect result
+  useEffect(() => {
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result) {
+          console.log("Logged in after redirect:", result.user.email);
+        }
+      })
+      .catch((error) => {
+        console.error("Redirect login error:", error);
+      });
+  }, []);
+
   // Test Connection
   useEffect(() => {
     async function testConnection() {
@@ -1775,7 +1788,11 @@ export default function App() {
   const handleLogin = async () => {
     setIsLoggingIn(true);
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (typeof window !== 'undefined' && (window as any).Capacitor && (window as any).Capacitor.isNativePlatform()) {
+        await signInWithRedirect(auth, googleProvider);
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
       // The onAuthStateChanged listener will handle the screen transition
     } catch (error: any) {
       console.error('Login error:', error);
