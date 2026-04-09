@@ -1,10 +1,11 @@
-export type RunMode = 'speed' | 'distance';
+export type RunMode = 'speed' | 'distance' | 'free' | 'custom';
 
 export interface RunConfig {
   mode: RunMode;
   target: number; // km/h for speed mode, meters for distance mode
   startSpeed?: number; // Optional start speed for rolling starts (km/h)
   useRollout?: boolean; // 1-foot rollout (approx 30cm)
+  isCustom?: boolean;
 }
 
 export interface RunResult {
@@ -18,11 +19,13 @@ export interface RunResult {
   path: GPSPoint[]; // full path coordinates
   slope?: number; // percentage (positive = uphill, negative = downhill)
   isValidSlope?: boolean;
-  maxG?: number;
+  maxG?: number | null;
+  avgAccuracy?: number | null;
+  da?: number | null; // Density Altitude in feet
   location?: {
     latitude: number;
     longitude: number;
-  };
+  } | null;
 }
 
 export interface RankingEntry {
@@ -56,6 +59,7 @@ export interface GPSPoint {
   longitude: number;
   altitude: number | null;
   speed: number; // m/s
+  accuracy: number | null;
   timestamp: number;
 }
 

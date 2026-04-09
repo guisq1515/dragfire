@@ -51,6 +51,7 @@ import {
   RotateCcw, 
   Activity,
   AlertCircle,
+  ArrowLeft,
   MapPin,
   ChevronLeft,
   Zap,
@@ -74,7 +75,9 @@ import {
   Shield,
   Plus,
   AlertTriangle,
-  RefreshCcw
+  RefreshCcw,
+  Bluetooth,
+  Cpu
 } from 'lucide-react';
 import { PerformanceChart } from './components/PerformanceChart';
 
@@ -137,7 +140,7 @@ import {
   Legend
 } from 'recharts';
 import { usePerformanceTimer } from './hooks/usePerformanceTimer';
-import { RunMode, RunConfig, RunResult, Challenge, Vehicle, RankingEntry } from './types';
+import { RunMode, RunConfig, RunResult, Challenge, Vehicle, RankingEntry, GPSPoint } from './types';
 import { calculateDistance } from './lib/utils';
 import { VEHICLE_DATA, YEARS } from './constants/vehicles';
 
@@ -203,7 +206,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 const TERMS_VERSION = '1.0.0';
 
-type Screen = 'home' | 'timer' | 'challenge' | 'duel-result' | 'settings' | 'login' | 'terms' | 'vehicle-settings' | 'profile-settings' | 'regional-ranking' | 'history' | 'gps-guide';
+type Screen = 'home' | 'timer' | 'challenge' | 'duel-result' | 'settings' | 'login' | 'terms' | 'vehicle-settings' | 'profile-settings' | 'regional-ranking' | 'history' | 'gps-guide' | 'custom-setup';
 
 function GPSGuide({ onBack }: { onBack: () => void }) {
   const tips = [
@@ -281,6 +284,181 @@ function GPSGuide({ onBack }: { onBack: () => void }) {
   );
 }
 
+// --- Helpers ---
+const calculateIntervals = (path: GPSPoint[], targets: number[]) => {
+  if (path.length === 0) return [];
+  const startTime = path[0].timestamp;
+  const intervals: { target: number; time: number }[] = [];
+  
+  targets.forEach(target => {
+    // Find the first point that exceeds or equals the target
+    const targetIndex = path.findIndex(p => p.speed * 3.6 >= target);
+    
+    if (targetIndex !== -1) {
+      const point = path[targetIndex];
+      let exactTime = point.timestamp;
+      
+      // Interpolate if we have a previous point
+      if (targetIndex > 0) {
+        const prevPoint = path[targetIndex - 1];
+        const speedNow = point.speed * 3.6;
+        const speedPrev = prevPoint.speed * 3.6;
+        const timeNow = point.timestamp;
+        const timePrev = prevPoint.timestamp;
+        
+        const speedDiff = speedNow - speedPrev;
+        const timeDiff = timeNow - timePrev;
+        const targetDiff = target - speedPrev;
+        
+        if (speedDiff > 0) {
+          const timeOffset = (targetDiff / speedDiff) * timeDiff;
+          exactTime = timePrev + timeOffset;
+        }
+      }
+      
+      intervals.push({
+        target,
+        time: (exactTime - startTime) / 1000
+      });
+    }
+  });
+  
+  return intervals;
+};
+
+interface HistoryItemProps {
+  key?: React.Key;
+  run: RunResult;
+  onDelete: (id: string) => void | Promise<void>;
+}
+
+function HistoryItem({ run, onDelete }: HistoryItemProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  return (
+    <div 
+      className={`glass-panel rounded-2xl border-white/5 flex flex-col transition-all duration-300 ${isExpanded ? 'p-6 bg-zinc-900/80' : 'p-4'}`}
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${run.config.mode === 'speed' ? 'bg-red-500/20 text-red-500' : 'bg-blue-500/20 text-blue-500'}`}>
+            {run.config.mode === 'speed' ? <Zap className="w-5 h-5" /> : <Flag className="w-5 h-5" />}
+          </div>
+          <div>
+            <h4 className="text-base font-bold text-white leading-none">
+              {run.config.isCustom ? (
+                run.config.mode === 'speed' ? `${run.config.startSpeed}-${run.config.target} km/h` : `${run.config.target}m`
+              ) : (
+                run.config.mode === 'speed' ? `${run.config.target} km/h` : `${run.config.target}m`
+              )}
+            </h4>
+            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">{formatDate(run.timestamp)}</p>
+          </div>
+        </div>
+        <div className="text-right flex items-center gap-4">
+          <div className="flex flex-col items-end">
+            <p className="text-2xl font-display font-black text-brand-accent italic leading-none">{run.time.toFixed(2)}s</p>
+            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">{Math.round(run.maxSpeed)} km/h</p>
+          </div>
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(run.id!);
+            }}
+            className="p-2 text-zinc-700 hover:text-red-500 transition-colors bg-zinc-950/50 rounded-lg"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="pt-6 mt-6 border-t border-white/5 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-zinc-950/50 p-4 rounded-xl border border-white/5">
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-3">
+                    {run.config.mode === 'free' ? 'Resumo' : 'Intervalos'}
+                  </span>
+                  <div className="space-y-2">
+                    {run.config.mode === 'free' ? (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-zinc-400 uppercase">Distância</span>
+                          <span className="text-sm font-display font-black text-white italic">{Math.round(run.distance)}m</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-zinc-400 uppercase">Velo. Média</span>
+                          <span className="text-sm font-display font-black text-white italic">{Math.round(run.avgSpeed)} km/h</span>
+                        </div>
+                      </>
+                    ) : run.config.isCustom ? (
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase">
+                          {run.config.mode === 'speed' ? `${run.config.startSpeed}-${run.config.target} km/h` : `${run.config.target}m`}
+                        </span>
+                        <span className="text-sm font-display font-black text-white italic">{run.time.toFixed(2)}s</span>
+                      </div>
+                    ) : (
+                      calculateIntervals(run.path, [20, 40, 60, 80, 100]).map(interval => (
+                        <div key={interval.target} className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold text-zinc-400 uppercase">0-{interval.target} km/h</span>
+                          <span className="text-sm font-display font-black text-white italic">{interval.time.toFixed(2)}s</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                  <div className="bg-zinc-950/50 p-4 rounded-xl border border-white/5 space-y-4">
+                    <div>
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">Inclinação</span>
+                      <p className={`text-lg font-display font-black italic leading-none ${run.isValidSlope ? 'text-white' : 'text-red-500'}`}>
+                        {run.slope?.toFixed(1)}%
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">Density Altitude</span>
+                      <p className="text-lg font-display font-black text-white italic leading-none">{run.da !== undefined ? `${run.da} ft` : '---'}</p>
+                    </div>
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">Pico G</span>
+                        <p className="text-lg font-display font-black text-white italic leading-none">{run.maxG?.toFixed(2)}G</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">Precisão</span>
+                        <p className="text-xs font-bold text-zinc-400">{run.avgAccuracy?.toFixed(1)}m</p>
+                      </div>
+                    </div>
+                  </div>
+              </div>
+              
+              <PerformanceChart result={run} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function HistoryView({ 
   user, 
   onBack 
@@ -311,16 +489,6 @@ function HistoryView({
     return () => unsubscribe();
   }, [user]);
 
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
   const deleteRun = async (runId: string) => {
     if (!window.confirm('Deseja excluir esta puxada permanentemente?')) return;
     try {
@@ -342,7 +510,7 @@ function HistoryView({
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-4">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-brand-primary border-t-transparent rounded-full animate-spin" />
@@ -356,50 +524,7 @@ function HistoryView({
           </div>
         ) : (
           runs.map((run) => (
-            <div key={run.id} className="glass-panel rounded-2xl p-4 border-white/5 flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${run.config.mode === 'speed' ? 'bg-red-500/20 text-red-500' : 'bg-blue-500/20 text-blue-500'}`}>
-                    {run.config.mode === 'speed' ? <Zap className="w-4 h-4" /> : <Flag className="w-4 h-4" />}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white">
-                      {run.config.mode === 'speed' ? `${run.config.target} km/h` : `${run.config.target}m`}
-                    </h4>
-                    <p className="text-[9px] text-zinc-500 font-bold uppercase">{formatDate(run.timestamp)}</p>
-                  </div>
-                </div>
-                <div className="text-right flex flex-col items-end gap-2">
-                  <p className="text-xl font-display font-black text-brand-accent italic leading-none">{run.time.toFixed(2)}s</p>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteRun(run.id!);
-                    }}
-                    className="p-1.5 text-zinc-700 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
-                <div>
-                  <span className="text-[8px] text-zinc-600 uppercase font-black block">Velo. Máx</span>
-                  <span className="text-xs font-bold text-zinc-300">{Math.round(run.maxSpeed)} km/h</span>
-                </div>
-                <div>
-                  <span className="text-[8px] text-zinc-600 uppercase font-black block">Distância</span>
-                  <span className="text-xs font-bold text-zinc-300">{Math.round(run.distance)}m</span>
-                </div>
-                <div>
-                  <span className="text-[8px] text-zinc-600 uppercase font-black block">Inclinação</span>
-                  <span className={`text-xs font-bold ${run.slope && run.slope < 0 ? 'text-red-500' : 'text-zinc-300'}`}>
-                    {run.slope ? `${run.slope.toFixed(1)}%` : '0.0%'}
-                  </span>
-                </div>
-              </div>
-            </div>
+            <HistoryItem key={run.id} run={run} onDelete={deleteRun} />
           ))
         )}
       </div>
@@ -415,7 +540,7 @@ function RegionalRanking({
   onBack: () => void 
 }) {
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
-  const [filter, setFilter] = useState<'regional' | 'general'>('regional');
+  const [filter, setFilter] = useState<'regional' | 'regional-100' | 'general'>('regional');
   const [typeFilter, setTypeFilter] = useState<'all' | 'car' | 'motorcycle'>('all');
   const [loading, setLoading] = useState(true);
 
@@ -441,13 +566,14 @@ function RegionalRanking({
     }
 
     // Filter by region
-    if (filter === 'regional' && userLocation) {
+    if (filter.startsWith('regional') && userLocation) {
+      const maxDist = filter === 'regional-100' ? 100000 : 20000;
       result = result.filter(entry => {
         const dist = calculateDistance(
           { latitude: userLocation.latitude, longitude: userLocation.longitude },
           { latitude: entry.latitude, longitude: entry.longitude }
         );
-        return dist <= 20000; // 20km in meters
+        return dist <= maxDist;
       });
     }
     
@@ -470,13 +596,19 @@ function RegionalRanking({
         <div className="flex bg-zinc-900 p-1 rounded-xl border border-white/5">
           <button 
             onClick={() => setFilter('regional')}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${filter === 'regional' ? 'bg-brand-primary text-white shadow-lg' : 'text-zinc-500'}`}
+            className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${filter === 'regional' ? 'bg-brand-primary text-white shadow-lg' : 'text-zinc-500'}`}
           >
-            Regional (20km)
+            20km
+          </button>
+          <button 
+            onClick={() => setFilter('regional-100')}
+            className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${filter === 'regional-100' ? 'bg-brand-primary text-white shadow-lg' : 'text-zinc-500'}`}
+          >
+            100km
           </button>
           <button 
             onClick={() => setFilter('general')}
-            className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${filter === 'general' ? 'bg-brand-primary text-white shadow-lg' : 'text-zinc-500'}`}
+            className={`flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${filter === 'general' ? 'bg-brand-primary text-white shadow-lg' : 'text-zinc-500'}`}
           >
             Geral
           </button>
@@ -671,7 +803,9 @@ function SettingsMenu({
   activeVehicle,
   onSelectVehicle,
   onNavigate, 
-  onBack 
+  onBack,
+  gpsSource,
+  onToggleGpsSource
 }: { 
   user: FirebaseUser | null, 
   isGuest: boolean, 
@@ -679,7 +813,9 @@ function SettingsMenu({
   activeVehicle: Vehicle | null,
   onSelectVehicle: (v: Vehicle) => void,
   onNavigate: (screen: Screen) => void, 
-  onBack: () => void 
+  onBack: () => void,
+  gpsSource: 'internal' | 'external',
+  onToggleGpsSource: () => void
 }) {
   return (
     <div className="flex-1 flex flex-col p-6 space-y-6 overflow-y-auto bg-zinc-950">
@@ -694,26 +830,76 @@ function SettingsMenu({
       </div>
 
       {!isGuest && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <h3 className="text-[10px] font-black text-zinc-600 uppercase tracking-widest px-1">Veículo Ativo</h3>
-          <div className="grid grid-cols-1 gap-2">
-            {vehicles.map((v) => (
-              <button
-                key={v.id}
-                onClick={() => onSelectVehicle(v)}
-                className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${v.active ? 'bg-brand-primary/10 border-brand-primary/30' : 'bg-zinc-900/30 border-white/5 hover:bg-zinc-900/50'}`}
-              >
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${v.active ? 'bg-brand-primary/20' : 'bg-zinc-800'}`}>
-                  {v.type === 'car' ? <Car className={`w-4 h-4 ${v.active ? 'text-brand-primary' : 'text-zinc-600'}`} /> : <Navigation className={`w-4 h-4 -rotate-90 ${v.active ? 'text-brand-primary' : 'text-zinc-600'}`} />}
+          
+          {activeVehicle ? (
+            <div className="flex flex-col items-center p-6 bg-zinc-900/50 border border-white/5 rounded-3xl relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-brand-primary/10 to-transparent" />
+              
+              <div className="relative z-10 flex flex-col items-center">
+                <div className="w-32 h-32 rounded-2xl bg-zinc-800 border-2 border-brand-primary/30 flex items-center justify-center overflow-hidden mb-4 shadow-2xl">
+                  {activeVehicle.photoURL ? (
+                    <img 
+                      src={activeVehicle.photoURL} 
+                      alt={activeVehicle.nickname} 
+                      className="w-full h-full object-cover" 
+                      referrerPolicy="no-referrer" 
+                    />
+                  ) : (
+                    <Car className="w-12 h-12 text-zinc-700" />
+                  )}
                 </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-xs font-bold ${v.active ? 'text-white' : 'text-zinc-500'}`}>{v.nickname}</p>
-                  <p className="text-[8px] text-zinc-600 font-bold uppercase">{v.brand} {v.model}</p>
+                
+                <h4 className="text-xl font-display font-black italic text-white mb-1 uppercase tracking-tight">{activeVehicle.nickname}</h4>
+                <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
+                  <span>{activeVehicle.brand}</span>
+                  <div className="w-1 h-1 rounded-full bg-zinc-700" />
+                  <span>{activeVehicle.model}</span>
+                  <div className="w-1 h-1 rounded-full bg-zinc-700" />
+                  <span>{activeVehicle.year}</span>
                 </div>
-                {v.active && <div className="w-2 h-2 rounded-full bg-brand-primary shadow-[0_0_8px_rgba(239,68,68,0.5)]" />}
-              </button>
-            ))}
-          </div>
+                
+                <button 
+                  onClick={() => onNavigate('vehicle-settings')}
+                  className="mt-6 px-6 py-2 bg-zinc-800 hover:bg-zinc-700 border border-white/5 rounded-xl text-[10px] font-black uppercase tracking-widest text-zinc-400 transition-all active:scale-95"
+                >
+                  Editar Veículo
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button 
+              onClick={() => onNavigate('vehicle-settings')}
+              className="w-full p-8 bg-zinc-900/30 border border-dashed border-white/10 rounded-3xl flex flex-col items-center gap-3 text-zinc-500 hover:bg-zinc-900/50 transition-all"
+            >
+              <Plus className="w-8 h-8" />
+              <span className="text-xs font-bold uppercase tracking-widest">Adicionar Veículo</span>
+            </button>
+          )}
+
+          {vehicles.length > 1 && (
+            <div className="space-y-2">
+              <p className="text-[9px] font-black text-zinc-700 uppercase tracking-widest px-1">Trocar Veículo</p>
+              <div className="grid grid-cols-1 gap-2">
+                {vehicles.filter(v => v.id !== activeVehicle?.id).map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => onSelectVehicle(v)}
+                    className="flex items-center gap-3 p-3 bg-zinc-900/30 border border-white/5 rounded-xl hover:bg-zinc-900/50 transition-all"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center">
+                      {v.type === 'car' ? <Car className="w-4 h-4 text-zinc-600" /> : <Navigation className="w-4 h-4 -rotate-90 text-zinc-600" />}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-xs font-bold text-zinc-400">{v.nickname}</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-zinc-800" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -747,6 +933,41 @@ function SettingsMenu({
           </div>
           {!isGuest && <ChevronRight className="w-5 h-5 text-zinc-700" />}
         </button>
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-[10px] font-black text-zinc-600 uppercase tracking-widest px-1">Hardware e Sensores</h3>
+        <div className="bg-zinc-900/50 border border-white/5 rounded-2xl divide-y divide-white/5">
+          <div className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${gpsSource === 'internal' ? 'bg-zinc-800' : 'bg-brand-primary/10'}`}>
+                <Cpu className={`w-5 h-5 ${gpsSource === 'internal' ? 'text-zinc-500' : 'text-brand-primary'}`} />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">Antena GPS Externa</h4>
+                <p className="text-[10px] text-zinc-500 uppercase font-bold">Usar sensor de alta precisão</p>
+              </div>
+            </div>
+            <button 
+              onClick={onToggleGpsSource}
+              className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${gpsSource === 'external' ? 'bg-brand-primary' : 'bg-zinc-800'}`}
+            >
+              <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300 ${gpsSource === 'external' ? 'translate-x-6' : 'translate-x-0'}`} />
+            </button>
+          </div>
+          
+          {gpsSource === 'external' && (
+            <div className="p-4 bg-brand-primary/5">
+              <button className="w-full py-3 bg-zinc-900 border border-brand-primary/30 rounded-xl text-brand-primary text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all">
+                <Bluetooth className="w-4 h-4" />
+                Conectar Dispositivo
+              </button>
+              <p className="text-[9px] text-zinc-500 mt-2 text-center italic">
+                Suporte para VBOX, RaceBox e antenas Bluetooth 10Hz+
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -1561,7 +1782,43 @@ const PRESETS = [
   { id: '201m', label: '201m', mode: 'distance' as const, target: 201, startSpeed: 0, description: '1/8 de milha (Arrancada)', icon: Flag, color: 'from-blue-500 to-cyan-500', type: 'standing' },
   { id: '402m', label: '402m', mode: 'distance' as const, target: 402, startSpeed: 0, description: '1/4 de milha (Padrão)', icon: Trophy, color: 'from-purple-500 to-pink-500', type: 'standing' },
   { id: '1km', label: '1km', mode: 'distance' as const, target: 1000, startSpeed: 0, description: 'Velocidade final máxima', icon: Flag, color: 'from-zinc-500 to-zinc-400', type: 'standing' },
+  { id: 'free', label: 'Modo Livre', mode: 'free' as const, target: 0, startSpeed: 0, description: 'Ajuste mecânico e telemetria', icon: Activity, color: 'from-zinc-700 to-zinc-600', type: 'manual' },
+  { id: 'custom', label: 'Personalizada', mode: 'custom' as const, target: 0, startSpeed: 0, description: 'Crie seu próprio teste', icon: Settings, color: 'from-brand-primary to-brand-secondary', type: 'custom' },
 ];
+
+// --- Components ---
+function SmoothCounter({ value, className }: { value: number, className?: string }) {
+  const [displayValue, setDisplayValue] = useState(value);
+  
+  useEffect(() => {
+    const startValue = displayValue;
+    const endValue = value;
+    const duration = 300; // ms
+    const startTime = performance.now();
+    
+    let animationFrame: number;
+    
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Ease out quad
+      const easedProgress = progress * (2 - progress);
+      
+      const current = startValue + (endValue - startValue) * easedProgress;
+      setDisplayValue(current);
+      
+      if (progress < 1) {
+        animationFrame = requestAnimationFrame(animate);
+      }
+    };
+    
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [value]);
+
+  return <span className={className}>{Math.round(displayValue)}</span>;
+}
 
 function GPSIndicator({ accuracy, onRequest }: { accuracy: number | null, onRequest: () => void }) {
   const getSignalLevel = () => {
@@ -1597,6 +1854,97 @@ function GPSIndicator({ accuracy, onRequest }: { accuracy: number | null, onRequ
   );
 }
 
+function CustomSetup({ onBack, onStart, config, setConfig }: { 
+  onBack: () => void, 
+  onStart: () => void,
+  config: { type: 'speed' | 'distance', startSpeed: number, target: number },
+  setConfig: (config: { type: 'speed' | 'distance', startSpeed: number, target: number }) => void
+}) {
+  return (
+    <div className="flex-1 flex flex-col p-6 overflow-y-auto">
+      <div className="flex items-center gap-4 mb-8">
+        <button onClick={onBack} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+          <ArrowLeft className="w-6 h-6 text-zinc-400" />
+        </button>
+        <h2 className="text-xl font-display font-black italic text-white leading-none tracking-tight">MODO PERSONALIZADO</h2>
+      </div>
+
+      <div className="space-y-6">
+        <div className="space-y-3">
+          <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Tipo de Teste</label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setConfig({ ...config, type: 'speed' })}
+              className={`py-4 rounded-xl border font-bold transition-all ${
+                config.type === 'speed' 
+                  ? 'bg-brand-primary/10 border-brand-primary text-brand-primary' 
+                  : 'bg-zinc-900 border-white/5 text-zinc-500 hover:border-white/10'
+              }`}
+            >
+              Aceleração
+            </button>
+            <button
+              onClick={() => setConfig({ ...config, type: 'distance' })}
+              className={`py-4 rounded-xl border font-bold transition-all ${
+                config.type === 'distance' 
+                  ? 'bg-brand-primary/10 border-brand-primary text-brand-primary' 
+                  : 'bg-zinc-900 border-white/5 text-zinc-500 hover:border-white/10'
+              }`}
+            >
+              Arrancada
+            </button>
+          </div>
+        </div>
+
+        {config.type === 'speed' ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Velocidade Inicial (km/h)</label>
+              <input
+                type="number"
+                value={config.startSpeed}
+                onChange={(e) => setConfig({ ...config, startSpeed: Number(e.target.value) })}
+                className="w-full bg-zinc-900 border border-white/5 rounded-xl p-4 text-white font-bold focus:outline-none focus:border-brand-primary transition-colors"
+                placeholder="Ex: 0, 60, 100"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Velocidade Final (km/h)</label>
+              <input
+                type="number"
+                value={config.target}
+                onChange={(e) => setConfig({ ...config, target: Number(e.target.value) })}
+                className="w-full bg-zinc-900 border border-white/5 rounded-xl p-4 text-white font-bold focus:outline-none focus:border-brand-primary transition-colors"
+                placeholder="Ex: 100, 200, 250"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Distância (metros)</label>
+            <input
+              type="number"
+              value={config.target}
+              onChange={(e) => setConfig({ ...config, target: Number(e.target.value) })}
+              className="w-full bg-zinc-900 border border-white/5 rounded-xl p-4 text-white font-bold focus:outline-none focus:border-brand-primary transition-colors"
+              placeholder="Ex: 201, 402, 1000"
+            />
+          </div>
+        )}
+
+        <div className="pt-4">
+          <button
+            onClick={onStart}
+            className="w-full py-4 bg-brand-primary hover:bg-red-500 text-white rounded-xl font-display font-black text-lg italic tracking-tight shadow-lg shadow-red-600/20 transition-all active:scale-95"
+          >
+            CONFIRMAR E INICIAR
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const {
     currentSpeed,
@@ -1611,14 +1959,23 @@ export default function App() {
     gpsStatus,
     lastPosition,
     startRun,
+    manualStart,
+    manualStop,
     reset,
     setMockResult,
     requestPermission,
-    isReady
+    isReady,
+    gpsSource,
+    setGpsSource
   } = usePerformanceTimer();
 
   const [screen, setScreen] = useState<Screen>('home');
   const [activeConfig, setActiveConfig] = useState<typeof PRESETS[0] | null>(null);
+  const [customConfig, setCustomConfig] = useState<{
+    type: 'speed' | 'distance';
+    startSpeed: number;
+    target: number;
+  }>({ type: 'speed', startSpeed: 0, target: 100 });
   const [useRollout, setUseRollout] = useState(true);
   const [activeChallenge, setActiveChallenge] = useState<Challenge | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -1941,6 +2298,12 @@ export default function App() {
 
   const handleSelectPreset = (preset: typeof PRESETS[0]) => {
     setActiveConfig(preset);
+    
+    if (preset.id === 'custom') {
+      setScreen('custom-setup');
+      return;
+    }
+
     setScreen('timer');
     
     // Auto-start ONLY for rolling starts (100-200)
@@ -1957,6 +2320,20 @@ export default function App() {
 
   const handleStart = () => {
     if (!activeConfig) return;
+    
+    if (activeConfig.id === 'custom') {
+      const config: RunConfig = {
+        mode: customConfig.type,
+        target: customConfig.target,
+        startSpeed: customConfig.startSpeed,
+        useRollout: customConfig.type === 'distance' ? useRollout : false,
+        isCustom: true
+      };
+      startRun(config);
+      setScreen('timer');
+      return;
+    }
+
     const config: RunConfig = {
       mode: activeConfig.mode,
       target: activeConfig.target,
@@ -1986,6 +2363,7 @@ export default function App() {
         longitude: -43.1729 + (i * 0.0001),
         altitude: null,
         speed: i * 11,
+        accuracy: 3.5,
         timestamp: Date.now() + (i * 500)
       }))
     };
@@ -2003,6 +2381,7 @@ export default function App() {
         longitude: -43.1729 + (i * 0.0001),
         altitude: null,
         speed: i * 12,
+        accuracy: 4.2,
         timestamp: Date.now() + (i * 450)
       }))
     };
@@ -2147,7 +2526,9 @@ export default function App() {
               activeVehicle={vehicle}
               onSelectVehicle={selectVehicle}
               onNavigate={setScreen} 
-              onBack={() => setScreen('home')} 
+              onBack={() => setScreen('home')}
+              gpsSource={gpsSource}
+              onToggleGpsSource={() => setGpsSource(prev => prev === 'internal' ? 'external' : 'internal')}
             />
           </motion.div>
         ) : screen === 'vehicle-settings' ? (
@@ -2214,6 +2595,21 @@ export default function App() {
             className="flex-1 flex flex-col overflow-hidden"
           >
             <GPSGuide onBack={() => setScreen('home')} />
+          </motion.div>
+        ) : screen === 'custom-setup' ? (
+          <motion.div
+            key="custom-setup"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <CustomSetup 
+              onBack={() => setScreen('home')} 
+              onStart={handleStart}
+              config={customConfig}
+              setConfig={setCustomConfig}
+            />
           </motion.div>
         ) : screen === 'home' ? (
           <motion.div 
@@ -2526,12 +2922,12 @@ export default function App() {
                   />
                   
                   <div className="text-center z-10">
-                    <motion.span 
+                    <motion.div 
                       className="block text-8xl font-display font-black italic tracking-tighter speed-text leading-none"
                       animate={{ scale: isRunning ? 1.05 : 1 }}
                     >
-                      {Math.round(currentSpeed)}
-                    </motion.span>
+                      <SmoothCounter value={currentSpeed} />
+                    </motion.div>
                     <span className="text-zinc-500 font-bold uppercase tracking-widest text-sm">km/h</span>
                     {isRunning && (
                       <div className="mt-2 flex items-center justify-center gap-1">
@@ -2553,6 +2949,16 @@ export default function App() {
                       </span>
                     </div>
                   </div>
+
+                  {activeConfig?.mode === 'free' && isRunning && (
+                    <button
+                      onClick={manualStop}
+                      className="absolute -bottom-20 left-1/2 -translate-x-1/2 w-full max-w-[200px] py-3 bg-red-500 text-white font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.3)]"
+                    >
+                      <RotateCcw className="w-5 h-5" />
+                      FINALIZAR
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -2597,15 +3003,34 @@ export default function App() {
                         )}
                       </div>
                       <h3 className={`text-lg font-bold uppercase tracking-wider mb-1 transition-colors duration-500 ${isReady ? 'text-brand-secondary' : 'text-zinc-500'}`}>
-                        {activeConfig?.id === '100-200' 
-                          ? (isReady ? 'PRONTO PARA ACELERAR' : 'ACELERE ATÉ 100KM/H')
-                          : (isReady ? 'SINAL VERDE: ARRANQUE!' : 'PARE O VEÍCULO')}
+                        {activeConfig?.mode === 'free'
+                          ? 'MODO LIVRE - PRONTO'
+                          : activeConfig?.id === '100-200' 
+                            ? (isReady ? 'PRONTO PARA ACELERAR' : 'ACELERE ATÉ 100KM/H')
+                            : (isReady ? 'SINAL VERDE: ARRANQUE!' : 'PARE O VEÍCULO')}
                       </h3>
-                      <p className="text-zinc-500 text-[10px] font-medium">
-                        {activeConfig?.id === '100-200' 
-                          ? `Aguardando atingir ${activeConfig.startSpeed} km/h...` 
-                          : (isReady ? 'O cronômetro iniciará ao detectar movimento.' : 'O teste só começa com o carro totalmente parado.')}
+                      <p className="text-zinc-500 text-[10px] font-medium mb-4">
+                        {activeConfig?.mode === 'free'
+                          ? 'Inicie a puxada manualmente quando desejar.'
+                          : activeConfig?.id === '100-200' 
+                            ? `Aguardando atingir ${activeConfig.startSpeed} km/h...` 
+                            : (isReady ? 'O cronômetro iniciará ao detectar movimento.' : 'O teste só começa com o carro totalmente parado.')}
                       </p>
+
+                      {activeConfig?.mode === 'free' && (
+                        <button
+                          onClick={manualStart}
+                          className="w-full py-4 bg-brand-primary text-zinc-950 font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(0,242,255,0.3)]"
+                        >
+                          <Play className="w-6 h-6 fill-current" />
+                          INICIAR PUXADA
+                        </button>
+                      )}
+
+                      <div className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white/5 rounded-xl border border-white/10 w-fit mx-auto">
+                        <Activity className="w-3 h-3 text-brand-primary" />
+                        <span className="text-[9px] font-black uppercase text-zinc-400 tracking-wider">Sensor IMU Ativo - Launch Trigger</span>
+                      </div>
 
                       {!isReady && currentSpeed > 5 && activeConfig?.id !== '100-200' && (
                         <motion.div 
@@ -2654,21 +3079,103 @@ export default function App() {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-0.5">
                           <span className="text-zinc-500 text-[9px] uppercase font-bold">Tempo Final</span>
-                          <p className="text-3xl font-display font-black text-white italic leading-none">{lastResult.time.toFixed(2)}s</p>
+                          <p className="text-4xl font-display font-black text-white italic leading-none">{lastResult.time.toFixed(2)}s</p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-zinc-500 text-[9px] uppercase font-bold">Velo. Máxima</span>
-                          <p className="text-3xl font-display font-black text-white italic leading-none">{Math.round(lastResult.maxSpeed)} <span className="text-xs">km/h</span></p>
+                          <p className="text-4xl font-display font-black text-white italic leading-none">{Math.round(lastResult.maxSpeed)} <span className="text-xs">km/h</span></p>
                         </div>
-                        <div className="space-y-0.5">
-                          <span className="text-zinc-500 text-[9px] uppercase font-bold">Inclinação (Slope)</span>
-                          <p className={`text-xl font-display font-black italic leading-none ${lastResult.isValidSlope ? 'text-white' : 'text-red-500'}`}>
-                            {lastResult.slope?.toFixed(1)}%
-                          </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-zinc-900/50 p-4 rounded-2xl border border-white/5 space-y-3">
+                          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block border-b border-white/5 pb-2">
+                            {lastResult.config.mode === 'free' ? 'Resumo da Puxada' : 'Intervalos'}
+                          </span>
+                          <div className="space-y-2">
+                            {lastResult.config.mode === 'free' ? (
+                              <>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-bold text-zinc-400 uppercase">Distância Total</span>
+                                  <span className="text-sm font-display font-black text-white italic">{Math.round(lastResult.distance)}m</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-bold text-zinc-400 uppercase">Velo. Média</span>
+                                  <span className="text-sm font-display font-black text-white italic">{Math.round(lastResult.avgSpeed)} km/h</span>
+                                </div>
+                              </>
+                            ) : lastResult.config.isCustom ? (
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold text-zinc-400 uppercase">
+                                  {lastResult.config.mode === 'speed' ? `${lastResult.config.startSpeed}-${lastResult.config.target} km/h` : `${lastResult.config.target}m`}
+                                </span>
+                                <span className="text-sm font-display font-black text-white italic">{lastResult.time.toFixed(2)}s</span>
+                              </div>
+                            ) : (
+                              <>
+                                {calculateIntervals(lastResult.path, [20, 40, 60, 80, 100]).map(interval => (
+                                  <div key={interval.target} className="flex justify-between items-center">
+                                    <span className="text-[10px] font-bold text-zinc-400 uppercase">0-{interval.target} km/h</span>
+                                    <span className="text-sm font-display font-black text-white italic">{interval.time.toFixed(2)}s</span>
+                                  </div>
+                                ))}
+                                {lastResult.config.mode === 'distance' && calculateIntervals(lastResult.path, [201, 402]).map(interval => (
+                                  <div key={interval.target} className="flex justify-between items-center">
+                                    <span className="text-[10px] font-bold text-zinc-400 uppercase">{interval.target === 201 ? '1/8 Mile' : '1/4 Mile'}</span>
+                                    <span className="text-sm font-display font-black text-white italic">{interval.time.toFixed(2)}s</span>
+                                  </div>
+                                ))}
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <div className="space-y-0.5">
-                          <span className="text-zinc-500 text-[9px] uppercase font-bold">Pico de G-Force</span>
-                          <p className="text-xl font-display font-black text-white italic leading-none">{lastResult.maxG?.toFixed(2)}G</p>
+                        
+                        <div className="bg-zinc-900/50 p-4 rounded-2xl border border-white/5 space-y-4">
+                          <div className="space-y-1">
+                            <span className="text-zinc-500 text-[9px] uppercase font-bold block">Inclinação (Slope)</span>
+                            <div className="flex items-center gap-2">
+                              <p className={`text-xl font-display font-black italic leading-none ${lastResult.isValidSlope ? 'text-white' : 'text-red-500'}`}>
+                                {lastResult.slope?.toFixed(1)}%
+                              </p>
+                              {lastResult.isValidSlope ? (
+                                <div className="px-1.5 py-0.5 bg-green-500/10 rounded text-[8px] font-black text-green-500 uppercase tracking-tighter">Válido</div>
+                              ) : (
+                                <div className="px-1.5 py-0.5 bg-red-500/10 rounded text-[8px] font-black text-red-500 uppercase tracking-tighter">Inválido</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-zinc-500 text-[9px] uppercase font-bold block">Density Altitude</span>
+                            <p className="text-xl font-display font-black text-white italic leading-none">
+                              {lastResult.da !== undefined ? `${lastResult.da} ft` : '---'}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-zinc-500 text-[9px] uppercase font-bold block">Precisão GPS</span>
+                            <div className="flex items-center gap-2">
+                              <p className="text-xl font-display font-black text-white italic leading-none">
+                                {lastResult.avgAccuracy ? `${lastResult.avgAccuracy.toFixed(1)}m` : 'N/A'}
+                              </p>
+                              {lastResult.avgAccuracy && lastResult.avgAccuracy < 5 ? (
+                                <div className="px-1.5 py-0.5 bg-blue-500/10 rounded text-[8px] font-black text-blue-500 uppercase tracking-tighter flex items-center gap-1">
+                                  <Signal className="w-2 h-2" />
+                                  Alta Precisão
+                                </div>
+                              ) : lastResult.avgAccuracy && lastResult.avgAccuracy < 10 ? (
+                                <div className="px-1.5 py-0.5 bg-yellow-500/10 rounded text-[8px] font-black text-yellow-500 uppercase tracking-tighter">Média</div>
+                              ) : (
+                                <div className="px-1.5 py-0.5 bg-red-500/10 rounded text-[8px] font-black text-red-500 uppercase tracking-tighter">Baixa</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-zinc-500 text-[9px] uppercase font-bold block">Pico de G-Force</span>
+                            <p className="text-xl font-display font-black text-white italic leading-none">{lastResult.maxG?.toFixed(2)}G</p>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-zinc-500 text-[9px] uppercase font-bold block">Distância Total</span>
+                            <p className="text-xl font-display font-black text-white italic leading-none">{Math.round(lastResult.distance)}m</p>
+                          </div>
                         </div>
                       </div>
 
@@ -2691,13 +3198,15 @@ export default function App() {
                             <Share2 className="w-4 h-4" />
                           </button>
                         </div>
-                        <button 
-                          onClick={handleDuel}
-                          className="w-full py-4 bg-brand-primary hover:bg-red-500 rounded-xl font-display font-black text-lg italic tracking-tight flex items-center justify-center gap-2 shadow-lg shadow-red-600/20 transition-all active:scale-95"
-                        >
-                          <Swords className="w-5 h-5" />
-                          DUELAR COM AMIGO
-                        </button>
+                        {lastResult.config.mode !== 'free' && !lastResult.config.isCustom && (
+                          <button 
+                            onClick={handleDuel}
+                            className="w-full py-4 bg-brand-primary hover:bg-red-500 rounded-xl font-display font-black text-lg italic tracking-tight flex items-center justify-center gap-2 shadow-lg shadow-red-600/20 transition-all active:scale-95"
+                          >
+                            <Swords className="w-5 h-5" />
+                            DUELAR COM AMIGO
+                          </button>
+                        )}
                       </div>
                     </motion.div>
                   )}
