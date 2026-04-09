@@ -1,8 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">DragFire</string>
-    <string name="title_activity_main">DragFire</string>
-    <string name="package_name">com.dragfire.app</string>
-    <string name="custom_url_scheme">com.dragfire.app</string>
-    <string name="server_client_id">724970175479-vjo8gincv3j166h0h1c2cef4o30rgu90.apps.googleusercontent.com</string>
-</resources>
