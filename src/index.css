@@ -32,3 +32,34 @@
 .speed-text {
   font-variant-numeric: tabular-nums;
 }
+
+@keyframes fire-flicker {
+  0%, 100% { opacity: 0.4; transform: scaleY(1); }
+  50% { opacity: 0.8; transform: scaleY(1.02); }
+}
+
+.fire-border-left {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(to bottom, transparent, #ff3e3e, #ff8c00, #ff3e3e, transparent);
+  box-shadow: 0 0 20px #ff3e3e, 0 0 40px #ff8c00;
+  z-index: 50;
+  pointer-events: none;
+  animation: fire-flicker 0.15s infinite alternate;
+}
+
+.fire-border-right {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(to bottom, transparent, #ff3e3e, #ff8c00, #ff3e3e, transparent);
+  box-shadow: 0 0 20px #ff3e3e, 0 0 40px #ff8c00;
+  z-index: 50;
+  pointer-events: none;
+  animation: fire-flicker 0.15s infinite alternate;
+}

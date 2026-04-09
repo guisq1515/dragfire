@@ -8,6 +8,7 @@ export function usePerformanceTimer() {
   const [isRunning, setIsRunning] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [progress, setProgress] = useState(0);
   const [lastResult, setLastResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [accuracy, setAccuracy] = useState<number | null>(null);
@@ -243,12 +244,24 @@ export function usePerformanceTimer() {
           const speedKmh = (calculatedSpeed || 0) * 3.6;
           setCurrentSpeed(speedKmh);
 
-          // ALWAYS update lastPointRef to ensure fallback calculation works on next tick
-          const prevPoint = lastPointRef.current;
-          lastPointRef.current = currentPoint;
-
           const config = configRef.current;
-          if (!config) return;
+          if (!config) {
+            lastPointRef.current = currentPoint;
+            return;
+          }
+
+          // Progress calculation
+          if (isRunningRef.current) {
+            let p = 0;
+            if (config.mode === 'speed') {
+              p = (speedKmh / config.target) * 100;
+            } else if (config.mode === 'distance') {
+              p = (distanceRef.current / config.target) * 100;
+            }
+            setProgress(Math.min(100, Math.max(0, p)));
+          } else {
+            setProgress(0);
+          }
 
           // Skip automatic triggers for 'free' mode
           if (config.mode === 'free') {
@@ -272,6 +285,7 @@ export function usePerformanceTimer() {
                 setDistance(newDist);
               }
             }
+            lastPointRef.current = currentPoint;
             return;
           }
 
@@ -314,7 +328,6 @@ export function usePerformanceTimer() {
                 }
 
                 pointsRef.current = [currentPoint];
-                lastPointRef.current = currentPoint;
                 distanceRef.current = 0;
                 setDistance(0);
                 
@@ -352,7 +365,6 @@ export function usePerformanceTimer() {
 
                 startTimeRef.current = exactStartTime;
                 pointsRef.current = [currentPoint];
-                lastPointRef.current = currentPoint;
                 distanceRef.current = 0;
                 setDistance(0);
                 
@@ -384,17 +396,26 @@ export function usePerformanceTimer() {
               const dPos = calculateDistance(lastPointRef.current, currentPoint);
               
               // 2. Speed-based (Average speed * time delta)
-              // GPS Speed is often more accurate for short-term changes than position
               const avgSpeedMs = (currentPoint.speed + lastPointRef.current.speed) / 2;
               const dSpeed = avgSpeedMs * timeDelta;
 
               // Use a weighted average or speed-based if accuracy is good
-              // Speed-based is usually better for drag racing distance increments
-              const d = (accuracy && accuracy < 10) ? (dSpeed * 0.7 + dPos * 0.3) : dPos;
+              const d = (accuracy && accuracy < 10) ? (dSpeed * 0.8 + dPos * 0.2) : dPos;
 
               const newDist = distanceRef.current + d;
               distanceRef.current = newDist;
               setDistance(newDist);
+
+              // Update progress
+              if (config.mode === 'distance') {
+                setProgress(Math.min((newDist / config.target) * 100, 100));
+              } else if (config.mode === 'speed') {
+                const startS = config.startSpeed || 0;
+                const currentS = speedKmh;
+                const targetS = config.target;
+                const p = ((currentS - startS) / (targetS - startS)) * 100;
+                setProgress(Math.max(0, Math.min(p, 100)));
+              }
 
               // Handle 1-foot rollout trigger
               if (rolloutStartedRef.current && !startTimeRef.current && newDist >= 0.3048) {
@@ -421,7 +442,8 @@ export function usePerformanceTimer() {
 
                   const finalTime = (exactEndTime - (startTimeRef.current || 0)) / 1000;
                   stopRun(finalTime);
-                  return; // Stop processing this update
+                  lastPointRef.current = currentPoint;
+                  return;
               }
             }
 
@@ -443,9 +465,12 @@ export function usePerformanceTimer() {
 
               const finalTime = (exactEndTime - (startTimeRef.current || 0)) / 1000;
               stopRun(finalTime);
+              lastPointRef.current = currentPoint;
               return;
             }
           }
+
+          lastPointRef.current = currentPoint;
         },
         (err) => {
           setGpsStatus('error');
@@ -486,6 +511,7 @@ export function usePerformanceTimer() {
     setDistance(0);
     distanceRef.current = 0;
     setElapsedTime(0);
+    setProgress(0);
     setLastResult(null);
     setGForce(0);
     maxGRef.current = 0;
@@ -530,6 +556,7 @@ export function usePerformanceTimer() {
     isRunning,
     isWaiting,
     isReady,
+    progress,
     elapsedTime,
     gForce,
     lastResult,

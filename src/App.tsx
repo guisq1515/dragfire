@@ -460,16 +460,29 @@ function HistoryItem({ run, onDelete }: HistoryItemProps) {
 }
 
 function HistoryView({ 
-  user, 
+  user,
+  isGuest,
   onBack 
 }: { 
-  user: FirebaseUser | null, 
+  user: FirebaseUser | null,
+  isGuest?: boolean,
   onBack: () => void 
 }) {
   const [runs, setRuns] = useState<RunResult[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isGuest) {
+      try {
+        const localRuns = JSON.parse(localStorage.getItem('dragfire_guest_runs') || '[]');
+        setRuns(localRuns);
+      } catch (e) {
+        console.error("Error loading guest history:", e);
+      }
+      setLoading(false);
+      return;
+    }
+
     if (!user) return;
     const q = query(
       collection(db, 'runs'), 
@@ -487,10 +500,18 @@ function HistoryView({
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isGuest]);
 
   const deleteRun = async (runId: string) => {
     if (!window.confirm('Deseja excluir esta puxada permanentemente?')) return;
+    
+    if (isGuest) {
+      const updatedRuns = runs.filter(r => r.id !== runId);
+      setRuns(updatedRuns);
+      localStorage.setItem('dragfire_guest_runs', JSON.stringify(updatedRuns));
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, 'runs', runId));
     } catch (error) {
@@ -1986,6 +2007,7 @@ export default function App() {
     requestPermission,
     refreshGPS,
     isReady,
+    progress,
     gpsSource,
     setGpsSource
   } = usePerformanceTimer();
@@ -2313,6 +2335,15 @@ export default function App() {
           addDoc(collection(db, 'rankings'), rankingData)
             .catch(err => handleFirestoreError(err, OperationType.WRITE, 'rankings'));
         }
+      } else if (isGuest) {
+        // Save to localStorage for guest users
+        try {
+          const localRuns = JSON.parse(localStorage.getItem('dragfire_guest_runs') || '[]');
+          localRuns.unshift(lastResult);
+          localStorage.setItem('dragfire_guest_runs', JSON.stringify(localRuns.slice(0, 50)));
+        } catch (e) {
+          console.error("Error saving to localStorage:", e);
+        }
       }
     }
   }, [lastResult]);
@@ -2477,6 +2508,12 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="flex flex-col h-screen bg-zinc-950 text-zinc-100 font-sans select-none overflow-hidden">
+        {isRunning && (
+          <>
+            <div className="fire-border-left" />
+            <div className="fire-border-right" />
+          </>
+        )}
         <AnimatePresence mode="wait">
           {!isAuthReady ? (
             <motion.div 
@@ -2605,6 +2642,7 @@ export default function App() {
           >
             <HistoryView 
               user={user} 
+              isGuest={isGuest}
               onBack={() => setScreen('home')} 
             />
           </motion.div>
@@ -2945,7 +2983,7 @@ export default function App() {
                   
                   <div className="text-center z-10">
                     <motion.div 
-                      className="block text-8xl font-display font-black italic tracking-tighter speed-text leading-none"
+                      className={`block text-8xl font-display font-black italic tracking-tighter speed-text leading-none ${isRunning ? 'text-brand-primary drop-shadow-[0_0_20px_rgba(239,68,68,0.6)]' : ''}`}
                       animate={{ scale: isRunning ? 1.05 : 1 }}
                     >
                       <SmoothCounter value={currentSpeed} />
@@ -2984,24 +3022,20 @@ export default function App() {
                 </div>
               )}
 
-              {/* Distance Progress Bar */}
-              {activeConfig?.mode === 'distance' && (isRunning || isWaiting) && (
-                <div className="max-w-[320px] mx-auto w-full space-y-2">
+              {/* Progress Bar */}
+              {(isRunning || isWaiting) && activeConfig?.mode !== 'free' && (
+                <div className="max-w-[320px] mx-auto w-full space-y-2 mt-8">
                   <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-zinc-400">
-                    <span>Progresso do Percurso</span>
-                    <span className="text-brand-accent">{Math.round(Math.min((distance / activeConfig.target) * 100, 100))}%</span>
+                    <span>{activeConfig?.mode === 'speed' ? `Alcançando ${activeConfig.target} km/h` : `Percorrendo ${activeConfig?.target}m`}</span>
+                    <span className="text-brand-accent">{Math.round(progress)}%</span>
                   </div>
-                  <div className="h-4 bg-zinc-900 rounded-full overflow-hidden border border-white/10 p-0.5">
+                  <div className="h-3 bg-zinc-900 rounded-full overflow-hidden border border-white/10 p-0.5">
                     <motion.div 
                       className="h-full bg-brand-accent rounded-full shadow-[0_0_15px_rgba(0,242,255,0.4)]"
                       initial={{ width: 0 }}
-                      animate={{ width: `${Math.min((distance / activeConfig.target) * 100, 100)}%` }}
-                      transition={{ type: 'spring', bounce: 0, duration: 0.5 }}
+                      animate={{ width: `${progress}%` }}
+                      transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
                     />
-                  </div>
-                  <div className="flex justify-between text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">
-                    <span>LARGADA (0m)</span>
-                    <span>CHEGADA ({activeConfig.target}m)</span>
                   </div>
                 </div>
               )}
