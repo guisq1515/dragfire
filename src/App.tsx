@@ -805,7 +805,8 @@ function SettingsMenu({
   onNavigate, 
   onBack,
   gpsSource,
-  onToggleGpsSource
+  onToggleGpsSource,
+  onRefreshGps
 }: { 
   user: FirebaseUser | null, 
   isGuest: boolean, 
@@ -815,7 +816,8 @@ function SettingsMenu({
   onNavigate: (screen: Screen) => void, 
   onBack: () => void,
   gpsSource: 'internal' | 'external',
-  onToggleGpsSource: () => void
+  onToggleGpsSource: () => void,
+  onRefreshGps: () => void
 }) {
   return (
     <div className="flex-1 flex flex-col p-6 space-y-6 overflow-y-auto bg-zinc-950">
@@ -956,6 +958,24 @@ function SettingsMenu({
             </button>
           </div>
           
+          <div className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center">
+                <RefreshCcw className="w-5 h-5 text-zinc-500" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">Reiniciar GPS</h4>
+                <p className="text-[10px] text-zinc-500 uppercase font-bold">Forçar liberação do sensor (Xiaomi/Android)</p>
+              </div>
+            </div>
+            <button 
+              onClick={onRefreshGps}
+              className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-[10px] font-black uppercase tracking-widest text-white transition-all active:scale-95"
+            >
+              Reiniciar
+            </button>
+          </div>
+
           {gpsSource === 'external' && (
             <div className="p-4 bg-brand-primary/5">
               <button className="w-full py-3 bg-zinc-900 border border-brand-primary/30 rounded-xl text-brand-primary text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-zinc-800 transition-all">
@@ -1964,6 +1984,7 @@ export default function App() {
     reset,
     setMockResult,
     requestPermission,
+    refreshGPS,
     isReady,
     gpsSource,
     setGpsSource
@@ -2475,7 +2496,7 @@ export default function App() {
             <div className="w-20 h-20 bg-brand-primary rounded-3xl flex items-center justify-center shadow-[0_0_30px_rgba(239,68,68,0.4)] mb-8">
               <Gauge className="w-10 h-10 text-white" />
             </div>
-            <h1 className="text-4xl font-display font-black italic text-white leading-none tracking-tighter mb-2">DRAGFIRE</h1>
+            <h1 className="text-4xl font-display font-black italic text-white leading-none tracking-tighter mb-2">DRAG<span className="text-brand-primary">FIRE</span></h1>
             <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest mb-12">Performance GPS Timer</p>
             
             <button 
@@ -2529,6 +2550,7 @@ export default function App() {
               onBack={() => setScreen('home')}
               gpsSource={gpsSource}
               onToggleGpsSource={() => setGpsSource(prev => prev === 'internal' ? 'external' : 'internal')}
+              onRefreshGps={refreshGPS}
             />
           </motion.div>
         ) : screen === 'vehicle-settings' ? (

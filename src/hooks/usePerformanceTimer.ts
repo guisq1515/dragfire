@@ -15,6 +15,7 @@ export function usePerformanceTimer() {
   const [gpsStatus, setGpsStatus] = useState<'searching' | 'active' | 'error'>('searching');
   const [lastPosition, setLastPosition] = useState<{ latitude: number, longitude: number } | null>(null);
   const [gpsSource, setGpsSource] = useState<'internal' | 'external'>('internal');
+  const [gpsRefreshKey, setGpsRefreshKey] = useState(0);
 
   const startTimeRef = useRef<number | null>(null);
   const lastPointRef = useRef<GPSPoint | null>(null);
@@ -472,7 +473,7 @@ export function usePerformanceTimer() {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [stopRun, gpsSource]); // Stable dependencies
+  }, [stopRun, gpsSource, gpsRefreshKey]); // Stable dependencies
 
   const reset = () => {
     setIsRunning(false);
@@ -518,6 +519,11 @@ export function usePerformanceTimer() {
     );
   }, []);
 
+  const refreshGPS = useCallback(() => {
+    setGpsRefreshKey(prev => prev + 1);
+    requestPermission();
+  }, [requestPermission]);
+
   return {
     currentSpeed,
     distance,
@@ -537,6 +543,7 @@ export function usePerformanceTimer() {
     reset,
     setMockResult,
     requestPermission,
+    refreshGPS,
     gpsSource,
     setGpsSource
   };
