@@ -3728,6 +3728,24 @@ export default function App() {
 
             {/* Home Content */}
             <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
+              {/* 1. AI Photo Editor (Top) */}
+              <section 
+                onClick={() => setScreen('ai-editor')}
+                className="bg-brand-primary/10 rounded-2xl p-4 border border-brand-primary/20 cursor-pointer hover:bg-brand-primary/20 transition-all active:scale-[0.98]"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-brand-primary rounded-xl flex items-center justify-center shadow-lg shadow-brand-primary/20">
+                    <Sparkles className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-bold text-white">Editor de Fotos AI</h4>
+                    <p className="text-[10px] text-brand-primary uppercase font-bold">Melhore suas fotos com Gemini</p>
+                  </div>
+                  <Wand2 className="w-5 h-5 text-brand-primary animate-pulse" />
+                </div>
+              </section>
+
+              {/* 2. Regional Challenge Highlight */}
               <section className="bg-brand-primary/5 rounded-2xl p-4 border border-brand-primary/20 shadow-lg shadow-brand-primary/5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-brand-primary/20 rounded-xl flex items-center justify-center">
@@ -3746,6 +3764,37 @@ export default function App() {
                 </div>
               </section>
 
+              {/* 3. Modalidades (Test Modes) */}
+              <section>
+                <h2 className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] mb-3 px-1">Selecione a Modalidade</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {PRESETS.map((preset) => (
+                    <motion.button
+                      key={preset.id}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleSelectPreset(preset)}
+                      className="group relative flex flex-col items-start p-4 bg-zinc-900/50 border border-white/5 rounded-2xl overflow-hidden text-left transition-all hover:bg-zinc-900 hover:border-white/10"
+                    >
+                      <div className={`absolute top-0 right-0 w-24 h-24 bg-gradient-to-br ${preset.color} opacity-5 blur-2xl group-hover:opacity-10 transition-opacity`} />
+                      
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${preset.color} flex items-center justify-center mb-3 shadow-lg`}>
+                        <preset.icon className="w-5 h-5 text-white" />
+                      </div>
+                      
+                      <h3 className="text-lg font-display font-black italic text-white leading-tight mb-1">{preset.label}</h3>
+                      <p className="text-[10px] text-zinc-500 font-bold uppercase leading-tight">{preset.description}</p>
+                      
+                      <div className="mt-4 flex items-center gap-2 text-zinc-500 group-hover:text-brand-primary transition-colors">
+                        <span className="text-[9px] font-black uppercase tracking-widest">Selecionar</span>
+                        <ChevronLeft className="w-3 h-3 rotate-180" />
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+              </section>
+
+              {/* 4. Utilities (Fuel & History) */}
               <div className="grid grid-cols-2 gap-3">
                 <section 
                   onClick={() => setScreen('fuel-calculator')}
@@ -3776,84 +3825,9 @@ export default function App() {
                     </div>
                   </div>
                 </section>
-
-                <section 
-                  onClick={() => setScreen('ai-editor')}
-                  className="bg-brand-primary/10 rounded-2xl p-4 border border-brand-primary/20 cursor-pointer hover:bg-brand-primary/20 transition-all active:scale-[0.98] col-span-2"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-brand-primary rounded-xl flex items-center justify-center shadow-lg shadow-brand-primary/20">
-                      <Sparkles className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-sm font-bold text-white">Editor de Fotos AI</h4>
-                      <p className="text-[10px] text-brand-primary uppercase font-bold">Melhore suas fotos com Gemini</p>
-                    </div>
-                    <Wand2 className="w-5 h-5 text-brand-primary animate-pulse" />
-                  </div>
-                </section>
               </div>
 
-              {(!accuracy || accuracy > 20) && (
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-brand-primary/10 border border-brand-primary/20 p-3 rounded-xl flex items-start gap-3"
-                >
-                  <Info className="w-4 h-4 text-brand-primary shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="text-white text-[10px] font-black uppercase tracking-widest">Sinal Instável</p>
-                    <p className="text-zinc-400 text-[10px] leading-relaxed">
-                      Para melhores resultados, evite ficar sob árvores ou coberturas metálicas. Procure um local com céu aberto.
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-              <section>
-                <h2 className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] mb-3 px-1">Selecione a Modalidade</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {PRESETS.map((preset) => (
-                    <motion.button
-                      key={preset.id}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => handleSelectPreset(preset)}
-                      className="group relative flex flex-col items-start p-4 bg-zinc-900/50 border border-white/5 rounded-2xl overflow-hidden text-left transition-all hover:bg-zinc-900 hover:border-white/10"
-                    >
-                      <div className={`absolute top-0 right-0 w-24 h-24 bg-gradient-to-br ${preset.color} opacity-5 blur-2xl group-hover:opacity-10 transition-opacity`} />
-                      
-                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${preset.color} flex items-center justify-center mb-3 shadow-lg`}>
-                        <preset.icon className="w-5 h-5 text-white" />
-                      </div>
-                      
-                      <h3 className="text-lg font-display font-black italic text-white leading-tight mb-1">{preset.label}</h3>
-                      <p className="text-[10px] text-zinc-500 font-bold uppercase leading-tight">{preset.description}</p>
-                      
-                      <div className="mt-4 flex items-center gap-2 text-zinc-500 group-hover:text-brand-primary transition-colors">
-                        <span className="text-[9px] font-black uppercase tracking-widest">Selecionar</span>
-                        <ChevronLeft className="w-3 h-3 rotate-180" />
-                      </div>
-                    </motion.button>
-                  ))}
-                </div>
-              </section>
-
-              <section 
-                onClick={() => setScreen('history')}
-                className="bg-zinc-900/30 rounded-2xl p-4 border border-white/5 cursor-pointer hover:bg-zinc-900/50 transition-all active:scale-[0.98]"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center">
-                    <History className="w-5 h-5 text-zinc-500" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="text-sm font-bold text-white">Histórico</h4>
-                    <p className="text-[10px] text-zinc-500 uppercase font-bold">Ver puxadas anteriores</p>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-zinc-700" />
-                </div>
-              </section>
-
+              {/* 5. Active Duel (Conditional) */}
               {activeChallenge && (
                 <section className={`rounded-2xl p-4 border ${isGuest ? 'bg-zinc-900/50 border-white/5 opacity-50' : 'bg-brand-accent/5 border-brand-accent/20'}`}>
                   <div className="flex items-center gap-3">
@@ -3878,13 +3852,14 @@ export default function App() {
                 </section>
               )}
 
+              {/* 6. GPS Guide */}
               <section 
                 onClick={() => setScreen('gps-guide')}
-                className="bg-brand-primary/5 rounded-2xl p-4 border border-brand-primary/10 cursor-pointer hover:bg-brand-primary/10 transition-all active:scale-[0.98]"
+                className="bg-zinc-900/30 rounded-2xl p-4 border border-white/5 cursor-pointer hover:bg-zinc-900/50 transition-all active:scale-[0.98]"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-brand-primary/10 rounded-xl flex items-center justify-center">
-                    <Signal className="w-5 h-5 text-brand-primary" />
+                  <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center">
+                    <Signal className="w-5 h-5 text-zinc-500" />
                   </div>
                   <div className="flex-1">
                     <h4 className="text-sm font-bold text-white">Guia de Precisão</h4>
