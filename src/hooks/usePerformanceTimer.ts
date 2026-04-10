@@ -118,7 +118,7 @@ export function usePerformanceTimer() {
   }, []); // Remove distance dependency
 
   const manualStart = useCallback(() => {
-    if (!configRef.current || configRef.current.mode !== 'free') return;
+    if (!configRef.current || (configRef.current.mode !== 'free' && configRef.current.mode !== 'trip')) return;
     
     setIsWaiting(false);
     isWaitingRef.current = false;
@@ -415,6 +415,8 @@ export function usePerformanceTimer() {
                 const targetS = config.target;
                 const p = ((currentS - startS) / (targetS - startS)) * 100;
                 setProgress(Math.max(0, Math.min(p, 100)));
+              } else if (config.mode === 'trip') {
+                setProgress(0); // No progress bar for trip mode or maybe use it for something else
               }
 
               // Handle 1-foot rollout trigger

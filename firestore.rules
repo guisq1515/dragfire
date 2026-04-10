@@ -39,6 +39,15 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == resource.data.uid;
     }
 
+    function isFollowing(userId) {
+      return isAuthenticated() && exists(/databases/$(database)/documents/follows/$(request.auth.uid + "_" + userId));
+    }
+
+    function isPrivate(userId) {
+      let user = get(/databases/$(database)/documents/users/$(userId));
+      return user != null && user.data.get('isPrivate', false) == true;
+    }
+
     function isValidEmail(email) {
       return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
@@ -90,14 +99,22 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
+      // Allow public profile viewing (get only) or full owner access
+      allow get: if true;
+      allow list: if isAuthenticated();
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
                       request.resource.data.uid == resource.data.uid;
+
+      match /private/{docId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     match /vehicles/{vehicleId} {
-      allow read: if isDocOwner() || isAdmin();
+      // Allow viewing vehicles for public profiles or if following private profile
+      allow read: if !isPrivate(resource.data.uid) || 
+                   (isAuthenticated() && (isFollowing(resource.data.uid) || isOwner(resource.data.uid)));
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidVehicle(request.resource.data);
       allow update: if isDocOwner() && isValidVehicle(request.resource.data) && 
                       request.resource.data.uid == resource.data.uid;
@@ -105,11 +122,26 @@ service cloud.firestore {
     }
 
     match /runs/{runId} {
-      allow read: if isDocOwner() || isAdmin();
+      // Allow viewing runs for public profiles or if following private profile
+      allow read: if !isPrivate(resource.data.uid) || 
+                   (isAuthenticated() && (isFollowing(resource.data.uid) || isOwner(resource.data.uid)));
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidRun(request.resource.data);
       allow update: if isDocOwner() && isValidRun(request.resource.data) && 
                       request.resource.data.uid == resource.data.uid;
       allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /follows/{followId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.followerId == request.auth.uid && !isPrivate(request.resource.data.followingId);
+      allow delete: if isAuthenticated() && (resource.data.followerId == request.auth.uid || resource.data.followingId == request.auth.uid);
+    }
+
+    match /follow_requests/{requestId} {
+      allow get: if isAuthenticated() && (requestId.startsWith(request.auth.uid + "_") || requestId.endsWith("_" + request.auth.uid));
+      allow list: if isAuthenticated() && (resource.data.followerId == request.auth.uid || resource.data.followingId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.followerId == request.auth.uid && isPrivate(request.resource.data.followingId);
+      allow delete: if isAuthenticated() && (resource.data.followerId == request.auth.uid || resource.data.followingId == request.auth.uid);
     }
 
     match /challenges/{challengeId} {

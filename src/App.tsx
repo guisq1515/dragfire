@@ -41,7 +41,13 @@ import {
 } from 'firebase/storage';
 import { auth, db, storage, googleProvider } from './firebase';
 import { 
+  Instagram,
+  CheckCircle2,
+  Share2,
   Trash2,
+  Home,
+  Search,
+  Fuel,
   Gauge, 
   Timer, 
   Flag, 
@@ -58,7 +64,6 @@ import {
   Trophy,
   Signal,
   Info,
-  Share2,
   Map as MapIcon,
   Swords,
   Clock,
@@ -77,9 +82,21 @@ import {
   AlertTriangle,
   RefreshCcw,
   Bluetooth,
-  Cpu
+  Cpu,
+  Users,
+  UserPlus,
+  UserMinus,
+  Heart,
+  Image as ImageIcon,
+  Sparkles,
+  Wand2,
+  Download
 } from 'lucide-react';
 import { PerformanceChart } from './components/PerformanceChart';
+import { TripAnalysis } from './components/TripAnalysis';
+import { FuelCalculator } from './components/FuelCalculator';
+import { editCarImage } from './services/geminiService';
+import { AIPhotoEditor } from './components/AIPhotoEditor';
 
 // --- Error Boundary ---
 class ErrorBoundary extends React.Component<any, any> {
@@ -140,7 +157,7 @@ import {
   Legend
 } from 'recharts';
 import { usePerformanceTimer } from './hooks/usePerformanceTimer';
-import { RunMode, RunConfig, RunResult, Challenge, Vehicle, RankingEntry, GPSPoint } from './types';
+import { RunMode, RunConfig, RunResult, Challenge, Vehicle, RankingEntry, GPSPoint, UserProfile } from './types';
 import { calculateDistance } from './lib/utils';
 import { VEHICLE_DATA, YEARS } from './constants/vehicles';
 
@@ -206,7 +223,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 const TERMS_VERSION = '1.0.0';
 
-type Screen = 'home' | 'timer' | 'challenge' | 'duel-result' | 'settings' | 'login' | 'terms' | 'vehicle-settings' | 'profile-settings' | 'regional-ranking' | 'history' | 'gps-guide' | 'custom-setup';
+type Screen = 'home' | 'timer' | 'challenge' | 'duel-result' | 'settings' | 'login' | 'terms' | 'vehicle-settings' | 'profile-settings' | 'regional-ranking' | 'history' | 'gps-guide' | 'custom-setup' | 'trip-view' | 'fuel-calculator' | 'public-profile' | 'feed' | 'search' | 'ai-editor';
 
 function GPSGuide({ onBack }: { onBack: () => void }) {
   const tips = [
@@ -462,10 +479,12 @@ function HistoryItem({ run, onDelete }: HistoryItemProps) {
 function HistoryView({ 
   user,
   isGuest,
+  isPremium,
   onBack 
 }: { 
   user: FirebaseUser | null,
   isGuest?: boolean,
+  isPremium?: boolean,
   onBack: () => void 
 }) {
   const [runs, setRuns] = useState<RunResult[]>([]);
@@ -531,6 +550,20 @@ function HistoryView({
         </div>
       </div>
 
+      {!isPremium && !isGuest && (
+        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-4 flex items-center gap-4">
+          <div className="w-10 h-10 bg-yellow-500/20 rounded-xl flex items-center justify-center shrink-0">
+            <Zap className="w-5 h-5 text-yellow-500" />
+          </div>
+          <div className="flex-1">
+            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-tight leading-tight">
+              No plano Free, apenas as <span className="text-yellow-500">2 últimas puxadas</span> são salvas.
+            </p>
+            <p className="text-[9px] text-zinc-500 font-medium mt-0.5">Assine o Premium para histórico ilimitado!</p>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-4">
         {loading ? (
           <div className="flex justify-center py-12">
@@ -553,12 +586,500 @@ function HistoryView({
   );
 }
 
-function RegionalRanking({ 
-  userLocation, 
+function BottomNav({ 
+  activeScreen, 
+  onNavigate, 
+  userPhoto,
+  isGuest
+}: { 
+  activeScreen: Screen, 
+  onNavigate: (s: Screen) => void,
+  userPhoto?: string,
+  isGuest?: boolean
+}) {
+  const navItems = [
+    { id: 'home', icon: Home, label: 'Home', locked: false },
+    { id: 'feed', icon: Play, label: 'Feed', locked: isGuest },
+    { id: 'search', icon: Search, label: 'Busca', locked: false },
+    { id: 'public-profile', icon: User, label: 'Perfil', locked: isGuest },
+  ];
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 bg-zinc-950/80 backdrop-blur-xl border-t border-white/5 px-6 py-3 z-50 flex items-center justify-between safe-area-bottom">
+      {navItems.map((item) => {
+        const isActive = activeScreen === item.id;
+        const Icon = item.icon;
+
+        return (
+          <button
+            key={item.id}
+            onClick={() => !item.locked && onNavigate(item.id as Screen)}
+            className={`flex flex-col items-center gap-1 transition-all active:scale-90 relative ${isActive ? 'text-brand-primary' : 'text-zinc-500'} ${item.locked ? 'opacity-50 grayscale' : ''}`}
+          >
+            {item.id === 'public-profile' && userPhoto ? (
+              <div className={`w-6 h-6 rounded-full overflow-hidden border-2 ${isActive ? 'border-brand-primary' : 'border-transparent'}`}>
+                <img src={userPhoto} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              </div>
+            ) : (
+              <Icon className={`w-6 h-6 ${isActive ? 'fill-current' : ''}`} />
+            )}
+            <span className="text-[10px] font-black uppercase tracking-tighter">{item.label}</span>
+            {item.locked && (
+              <div className="absolute -top-1 -right-1">
+                <Lock className="w-2.5 h-2.5 text-yellow-500" />
+              </div>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SearchUsers({ 
+  currentUserId, 
+  onViewProfile 
+}: { 
+  currentUserId: string | undefined, 
+  onViewProfile: (uid: string) => void 
+}) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [results, setResults] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (searchTerm.length < 3) {
+      setResults([]);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(async () => {
+      setLoading(true);
+      try {
+        // Simple prefix search for display names
+        const q = query(
+          collection(db, 'users'),
+          where('displayName', '>=', searchTerm),
+          where('displayName', '<=', searchTerm + '\uf8ff'),
+          limit(20)
+        );
+        const snapshot = await getDocs(q);
+        const users = snapshot.docs
+          .map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile))
+          .filter(u => u.uid !== currentUserId);
+        setResults(users);
+      } catch (error) {
+        console.error("Error searching users:", error);
+      } finally {
+        setLoading(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm, currentUserId]);
+
+  return (
+    <div className="flex-1 flex flex-col bg-zinc-950 p-6 space-y-6 overflow-y-auto pb-24">
+      <div className="space-y-2">
+        <h2 className="text-2xl font-display font-black italic text-white uppercase tracking-tighter">BUSCAR PILOTOS</h2>
+        <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">Encontre seus amigos</p>
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-600" />
+        <input 
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Digite o nome do piloto..."
+          className="w-full bg-zinc-900 border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-white placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary/50 transition-all"
+        />
+      </div>
+
+      <div className="space-y-3">
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <div className="w-6 h-6 border-2 border-brand-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : results.length > 0 ? (
+          results.map((u) => (
+            <button
+              key={u.uid}
+              onClick={() => onViewProfile(u.uid)}
+              className="w-full p-4 bg-zinc-900/50 border border-white/5 rounded-2xl flex items-center gap-4 hover:bg-zinc-900 transition-all active:scale-[0.98]"
+            >
+              <div className="w-12 h-12 rounded-xl overflow-hidden bg-zinc-800">
+                {u.photoURL ? (
+                  <img src={u.photoURL} alt={u.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <User className="w-6 h-6 text-zinc-600" />
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 text-left">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-white">{u.displayName}</h4>
+                  {u.isPremium && <Zap className="w-3 h-3 text-brand-primary fill-current" />}
+                </div>
+                {u.bio && <p className="text-[10px] text-zinc-500 line-clamp-1">{u.bio}</p>}
+              </div>
+              <ChevronRight className="w-4 h-4 text-zinc-700" />
+            </button>
+          ))
+        ) : searchTerm.length >= 3 ? (
+          <div className="text-center py-12 space-y-2">
+            <p className="text-zinc-500 text-sm">Nenhum piloto encontrado.</p>
+          </div>
+        ) : (
+          <div className="text-center py-12 space-y-2">
+            <Users className="w-12 h-12 text-zinc-900 mx-auto mb-2" />
+            <p className="text-zinc-700 text-xs font-bold uppercase tracking-widest">Digite pelo menos 3 caracteres</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Feed() {
+  return (
+    <div className="flex-1 flex flex-col bg-zinc-950 p-6 space-y-6 items-center justify-center pb-24">
+      <div className="w-20 h-20 bg-brand-primary/10 rounded-3xl flex items-center justify-center border border-brand-primary/20 mb-4">
+        <Play className="w-10 h-10 text-brand-primary fill-current" />
+      </div>
+      <div className="text-center space-y-2">
+        <h2 className="text-2xl font-display font-black italic text-white uppercase tracking-tighter">FEED DE ATIVIDADES</h2>
+        <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em] max-w-[200px] mx-auto">
+          Em breve você verá as puxadas e conquistas dos seus amigos aqui!
+        </p>
+      </div>
+      <div className="w-full max-w-xs p-6 bg-zinc-900/50 border border-white/5 rounded-3xl border-dashed">
+        <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center">
+          Funcionalidade em desenvolvimento
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function PublicProfile({ 
+  uid, 
+  currentUserId,
   onBack 
 }: { 
-  userLocation: { latitude: number, longitude: number } | null, 
+  uid: string, 
+  currentUserId: string | undefined,
   onBack: () => void 
+}) {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [runs, setRuns] = useState<RunResult[]>([]);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [isRequested, setIsRequested] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      setLoading(true);
+      try {
+        const profileDoc = await getDoc(doc(db, 'users', uid));
+        if (profileDoc.exists()) {
+          setProfile(profileDoc.data() as UserProfile);
+        }
+
+        const vehiclesQuery = query(collection(db, 'vehicles'), where('uid', '==', uid));
+        const vehiclesSnap = await getDocs(vehiclesQuery);
+        setVehicles(vehiclesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Vehicle)));
+
+        const runsQuery = query(collection(db, 'runs'), where('uid', '==', uid), orderBy('timestamp', 'desc'), limit(10));
+        const runsSnap = await getDocs(runsQuery);
+        setRuns(runsSnap.docs.map(d => ({ id: d.id, ...d.data() } as RunResult)));
+
+        if (currentUserId) {
+          const followDoc = await getDoc(doc(db, 'follows', `${currentUserId}_${uid}`));
+          setIsFollowing(followDoc.exists());
+
+          const requestDoc = await getDoc(doc(db, 'follow_requests', `${currentUserId}_${uid}`));
+          setIsRequested(requestDoc.exists());
+        }
+      } catch (error) {
+        console.error("Error fetching public profile:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProfile();
+  }, [uid, currentUserId]);
+
+  const handleFollow = async () => {
+    if (!currentUserId || !profile) return;
+    const followId = `${currentUserId}_${uid}`;
+    try {
+      if (isFollowing) {
+        await deleteDoc(doc(db, 'follows', followId));
+        setIsFollowing(false);
+      } else if (isRequested) {
+        await deleteDoc(doc(db, 'follow_requests', followId));
+        setIsRequested(false);
+      } else {
+        if (profile.isPrivate) {
+          await setDoc(doc(db, 'follow_requests', followId), {
+            followerId: currentUserId,
+            followingId: uid,
+            timestamp: Date.now()
+          });
+          setIsRequested(true);
+        } else {
+          await setDoc(doc(db, 'follows', followId), {
+            followerId: currentUserId,
+            followingId: uid,
+            timestamp: Date.now()
+          });
+          setIsFollowing(true);
+        }
+      }
+    } catch (error) {
+      console.error("Error toggling follow:", error);
+    }
+  };
+
+  const handleShare = async () => {
+    const shareData = {
+      title: `Perfil de ${profile.displayName} no DragFire`,
+      text: `Confira a garagem e os tempos de ${profile.displayName} no DragFire!`,
+      url: window.location.href
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        alert('Link do perfil copiado!');
+      }
+    } catch (error) {
+      console.error('Error sharing:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-zinc-950">
+        <div className="w-8 h-8 border-2 border-brand-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-zinc-950 p-6 text-center">
+        <User className="w-12 h-12 text-zinc-800 mb-4" />
+        <h3 className="text-white font-bold">Perfil não encontrado</h3>
+        <button onClick={onBack} className="mt-4 text-brand-primary font-bold uppercase text-xs">Voltar</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col bg-zinc-950 overflow-y-auto pb-24">
+      {/* Header */}
+      <div className="relative h-48 bg-zinc-900 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 to-transparent z-10" />
+        <button 
+          onClick={onBack}
+          className="absolute top-6 left-6 z-20 p-2 bg-black/40 backdrop-blur-md rounded-xl text-white"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <button 
+          onClick={handleShare}
+          className="absolute top-6 right-6 z-20 p-2 bg-black/40 backdrop-blur-md rounded-xl text-white"
+        >
+          <Share2 className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Profile Info */}
+      <div className="px-6 -mt-12 relative z-20 space-y-6">
+        <div className="flex items-end justify-between">
+          <div className="relative">
+            <div className="w-24 h-24 rounded-3xl border-4 border-zinc-950 overflow-hidden bg-zinc-800 shadow-2xl">
+              {profile.photoURL ? (
+                <img src={profile.photoURL} alt={profile.displayName || ''} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <User className="w-10 h-10 text-zinc-600" />
+                </div>
+              )}
+            </div>
+            {profile.isPremium && (
+              <div className="absolute -bottom-2 -right-2 bg-brand-primary text-white p-1.5 rounded-lg shadow-lg">
+                <Zap className="w-4 h-4 fill-current" />
+              </div>
+            )}
+          </div>
+          
+          {currentUserId !== uid && (
+            <button 
+              onClick={handleFollow}
+              className={`px-6 py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all flex items-center gap-2 ${isFollowing || isRequested ? 'bg-zinc-800 text-zinc-400 border border-white/5' : 'bg-brand-primary text-white shadow-lg shadow-red-600/20'}`}
+            >
+              {isFollowing ? (
+                <>
+                  <UserMinus className="w-3.5 h-3.5" />
+                  Seguindo
+                </>
+              ) : isRequested ? (
+                <>
+                  <Clock className="w-3.5 h-3.5" />
+                  Solicitado
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-3.5 h-3.5" />
+                  Seguir
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-display font-black italic text-white leading-none">
+              {profile.displayName || 'Piloto Anônimo'}
+            </h2>
+            {profile.isVerified && (
+              <CheckCircle2 className="w-5 h-5 text-blue-400 fill-blue-400/10" />
+            )}
+          </div>
+          {profile.bio && <p className="text-zinc-400 text-sm mt-2">{profile.bio}</p>}
+          
+          {profile.instagram && (
+            <a 
+              href={`https://instagram.com/${profile.instagram.replace('@', '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 mt-3 px-3 py-1.5 bg-zinc-900 border border-white/5 rounded-lg text-zinc-400 hover:text-white transition-colors"
+            >
+              <Instagram className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold">{profile.instagram.startsWith('@') ? profile.instagram : `@${profile.instagram}`}</span>
+            </a>
+          )}
+
+          <div className="flex gap-4 mt-4">
+            <div className="flex flex-col">
+              <span className="text-white font-black italic text-lg leading-none">{profile.followersCount || 0}</span>
+              <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-1">Seguidores</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-white font-black italic text-lg leading-none">{profile.followingCount || 0}</span>
+              <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-1">Seguindo</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Vehicles & Runs (Privacy Check) */}
+        {profile.isPrivate && !isFollowing && currentUserId !== uid ? (
+          <div className="flex flex-col items-center justify-center py-12 px-6 text-center space-y-4 bg-zinc-900/30 rounded-3xl border border-white/5">
+            <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center">
+              <Lock className="w-8 h-8 text-zinc-700" />
+            </div>
+            <div>
+              <h3 className="text-white font-bold">Esta conta é privada</h3>
+              <p className="text-zinc-500 text-xs mt-1 leading-relaxed">Siga este piloto para ver sua garagem e tempos registrados.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Vehicles */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                  <Car className="w-4 h-4 text-brand-primary" />
+                  Garagem
+                </h3>
+                <span className="text-[10px] text-zinc-500 font-bold">{vehicles.length} Veículos</span>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-3">
+                {vehicles.map(v => (
+                  <div key={v.id} className="glass-panel rounded-2xl p-4 border-white/5 flex flex-col gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center overflow-hidden border border-white/5">
+                        {v.photoURL ? (
+                          <img src={v.photoURL} alt={v.nickname} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          v.type === 'car' ? <Car className="w-6 h-6 text-zinc-700" /> : <Navigation className="w-6 h-6 -rotate-90 text-zinc-700" />
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-white">{v.nickname}</h4>
+                        <p className="text-[10px] text-zinc-500 font-bold uppercase">{v.brand} {v.model} • {v.year}</p>
+                      </div>
+                    </div>
+                    
+                    {/* Vehicle Photos (Premium) */}
+                    {v.photoURLs && v.photoURLs.length > 0 && (
+                      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                        {v.photoURLs.map((url, idx) => (
+                          <div key={idx} className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-white/5">
+                            <img src={url} alt={`Vehicle ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Best Runs */}
+            <div className="space-y-4 pb-12">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                  <History className="w-4 h-4 text-brand-primary" />
+                  Últimos Tempos
+                </h3>
+              </div>
+              
+              <div className="space-y-2">
+                {runs.map(run => (
+                  <div key={run.id} className="bg-zinc-900/50 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black text-brand-primary uppercase italic">
+                        {run.config.mode === 'speed' ? `0-${run.config.target} KM/H` : `${run.config.target}M`}
+                      </p>
+                      <p className="text-[9px] text-zinc-500 font-bold">{new Date(run.timestamp).toLocaleDateString()}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-display font-black italic text-white leading-none">
+                        {run.time.toFixed(2)}s
+                      </p>
+                      <p className="text-[9px] text-zinc-500 font-bold uppercase">{run.maxSpeed.toFixed(0)} KM/H</p>
+                    </div>
+                  </div>
+                ))}
+                {runs.length === 0 && (
+                  <p className="text-center py-8 text-zinc-600 text-[10px] font-bold uppercase">Nenhuma puxada registrada</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+function RegionalRanking({ 
+  userLocation, 
+  onBack,
+  onViewProfile
+}: { 
+  userLocation: { latitude: number, longitude: number } | null, 
+  onBack: () => void,
+  onViewProfile: (uid: string) => void
 }) {
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
   const [filter, setFilter] = useState<'regional' | 'regional-100' | 'general'>('regional');
@@ -613,7 +1134,7 @@ function RegionalRanking({
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-4 pb-24">
         <div className="flex bg-zinc-900 p-1 rounded-xl border border-white/5">
           <button 
             onClick={() => setFilter('regional')}
@@ -671,7 +1192,11 @@ function RegionalRanking({
           </div>
         ) : (
           filteredRankings.map((entry, index) => (
-            <div key={entry.id} className="glass-panel rounded-2xl p-4 border-white/5 flex items-center gap-4">
+            <div 
+              key={entry.id} 
+              className="glass-panel rounded-2xl p-4 border-white/5 flex items-center gap-4 cursor-pointer active:scale-[0.98] transition-all"
+              onClick={() => onViewProfile(entry.uid)}
+            >
               <div className="w-8 h-8 bg-zinc-900 rounded-lg flex items-center justify-center text-xs font-black italic text-brand-primary border border-brand-primary/20">
                 #{index + 1}
               </div>
@@ -709,16 +1234,79 @@ function RegionalRanking({
 
 function ProfileSettings({ 
   user, 
+  userProfile,
   onUpdate, 
   onBack 
 }: { 
   user: FirebaseUser | null, 
-  onUpdate: (data: { displayName?: string, photoURL?: string }) => void, 
+  userProfile: UserProfile | null,
+  onUpdate: (data: { displayName?: string, photoURL?: string, isPremium?: boolean, bio?: string, instagram?: string, isPrivate?: boolean }) => void, 
   onBack: () => void 
 }) {
   const [displayName, setDisplayName] = useState(user?.displayName || '');
+  const [bio, setBio] = useState(userProfile?.bio || '');
+  const [instagram, setInstagram] = useState(userProfile?.instagram || '');
+  const [isPrivate, setIsPrivate] = useState(userProfile?.isPrivate || false);
   const [photoURL, setPhotoURL] = useState(user?.photoURL || '');
   const [uploading, setUploading] = useState(false);
+  const [followRequests, setFollowRequests] = useState<any[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setLoadingRequests(true);
+    const q = query(collection(db, 'follow_requests'), where('followingId', '==', user.uid));
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const requests = [];
+      for (const d of snapshot.docs) {
+        const data = d.data();
+        const userDoc = await getDoc(doc(db, 'users', data.followerId));
+        requests.push({
+          id: d.id,
+          ...data,
+          userName: userDoc.exists() ? userDoc.data().displayName : 'Piloto',
+          userPhoto: userDoc.exists() ? userDoc.data().photoURL : null
+        });
+      }
+      setFollowRequests(requests);
+      setLoadingRequests(false);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const handleAcceptRequest = async (request: any) => {
+    try {
+      const batch = writeBatch(db);
+      
+      // Add to follows
+      const followId = `${request.followerId}_${user?.uid}`;
+      batch.set(doc(db, 'follows', followId), {
+        followerId: request.followerId,
+        followingId: user?.uid,
+        timestamp: Date.now()
+      });
+
+      // Delete request
+      batch.delete(doc(db, 'follow_requests', request.id));
+
+      await batch.commit();
+    } catch (error) {
+      console.error("Error accepting follow request:", error);
+    }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    try {
+      await deleteDoc(doc(db, 'follow_requests', requestId));
+    } catch (error) {
+      console.error("Error rejecting follow request:", error);
+    }
+  };
+
+  const handleUpgrade = () => {
+    // Simulate upgrade
+    onUpdate({ isPremium: true });
+  };
 
   const handleFileChange = async (e: any) => {
     const file = e.target.files?.[0];
@@ -740,7 +1328,7 @@ function ProfileSettings({
 
   const handleSubmit = (e: any) => {
     e.preventDefault();
-    onUpdate({ displayName });
+    onUpdate({ displayName, bio, instagram, isPrivate });
     onBack();
   };
 
@@ -752,9 +1340,32 @@ function ProfileSettings({
         </button>
         <div>
           <h2 className="text-xl font-display font-black italic text-white leading-none">PERFIL</h2>
-          <p className="text-xs text-brand-primary font-bold uppercase tracking-widest mt-1">Dados do Piloto</p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-xs text-brand-primary font-bold uppercase tracking-widest">Dados do Piloto</p>
+            {userProfile?.isPremium && (
+              <span className="bg-yellow-500 text-zinc-950 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">Premium</span>
+            )}
+          </div>
         </div>
       </div>
+
+      {!userProfile?.isPremium && (
+        <div className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-500/30 rounded-2xl p-5 space-y-3">
+          <div className="flex items-center gap-3 text-yellow-500">
+            <Zap className="w-5 h-5" />
+            <h3 className="text-xs font-black uppercase tracking-widest">Seja Premium</h3>
+          </div>
+          <p className="text-[10px] text-zinc-400 font-medium leading-relaxed">
+            Desbloqueie vantagens exclusivas: garagem ilimitada, fotos reais dos veículos, histórico completo e gráficos de performance!
+          </p>
+          <button 
+            onClick={handleUpgrade}
+            className="w-full py-2.5 bg-yellow-500 hover:bg-yellow-400 text-zinc-950 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95"
+          >
+            ASSINAR AGORA
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-col items-center space-y-4">
         <div className="relative group">
@@ -782,6 +1393,68 @@ function ProfileSettings({
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">
+          <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Privacidade</label>
+          <div 
+            onClick={() => setIsPrivate(!isPrivate)}
+            className="flex items-center justify-between p-4 bg-zinc-900 border border-white/5 rounded-xl cursor-pointer hover:border-brand-primary/30 transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isPrivate ? 'bg-brand-primary/20 text-brand-primary' : 'bg-zinc-800 text-zinc-500'}`}>
+                {isPrivate ? <Lock className="w-5 h-5" /> : <Users className="w-5 h-5" />}
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white">{isPrivate ? 'Conta Privada' : 'Conta Pública'}</p>
+                <p className="text-[10px] text-zinc-500 font-medium">
+                  {isPrivate ? 'Apenas seguidores podem ver seus dados' : 'Qualquer pessoa pode ver seus dados'}
+                </p>
+              </div>
+            </div>
+            <div className={`w-12 h-6 rounded-full p-1 transition-colors ${isPrivate ? 'bg-brand-primary' : 'bg-zinc-800'}`}>
+              <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isPrivate ? 'translate-x-6' : 'translate-x-0'}`} />
+            </div>
+          </div>
+        </div>
+
+        {followRequests.length > 0 && (
+          <div className="space-y-3">
+            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Solicitações de Seguidores ({followRequests.length})</label>
+            <div className="space-y-2">
+              {followRequests.map(req => (
+                <div key={req.id} className="flex items-center gap-3 p-3 bg-zinc-900 border border-white/5 rounded-xl">
+                  <div className="w-10 h-10 rounded-full overflow-hidden bg-zinc-800">
+                    {req.userPhoto ? (
+                      <img src={req.userPhoto} alt={req.userName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <User className="w-5 h-5 text-zinc-600" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-white truncate">{req.userName}</p>
+                    <p className="text-[9px] text-zinc-500 uppercase font-black tracking-tighter">Quer te seguir</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => handleRejectRequest(req.id)}
+                      className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => handleAcceptRequest(req)}
+                      className="p-2 bg-brand-primary hover:bg-red-500 text-white rounded-lg transition-colors"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-1.5">
           <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Nome de Piloto</label>
           <input 
             type="text"
@@ -791,6 +1464,32 @@ function ProfileSettings({
             className="w-full bg-zinc-900 border border-white/5 rounded-xl p-4 text-white placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary/50 transition-colors"
             required
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Bio / Slogan</label>
+          <textarea 
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            placeholder="Ex: Piloto de final de semana..."
+            className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-brand-primary/50 outline-none transition-all resize-none h-24"
+            maxLength={150}
+          />
+          <p className="text-[9px] text-zinc-600 text-right">{bio.length}/150</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Instagram</label>
+          <div className="relative">
+            <Instagram className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <input 
+              type="text"
+              value={instagram}
+              onChange={e => setInstagram(e.target.value)}
+              placeholder="@seu_perfil"
+              className="w-full bg-zinc-900 border border-white/5 rounded-xl py-4 pl-12 pr-4 text-white placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary/50 transition-colors"
+            />
+          </div>
         </div>
 
         <div className="space-y-1.5">
@@ -1166,17 +1865,21 @@ function TermsOfUse({ onAccept, onDecline }: { onAccept: () => void, onDecline: 
 
 function VehicleSettings({ 
   vehicles,
+  userProfile,
   onSave, 
   onDelete,
   onBack 
 }: { 
   vehicles: Vehicle[], 
+  userProfile: UserProfile | null,
   onSave: (v: Vehicle) => void, 
   onDelete: (v: Vehicle) => void,
   onBack: () => void 
 }) {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const isPremium = userProfile?.isPremium;
+  const canAddMore = isPremium || vehicles.length < 1;
   const [formData, setFormData] = useState<Vehicle>({
     type: 'car',
     brand: '',
@@ -1251,6 +1954,78 @@ function VehicleSettings({
     }
   };
 
+  const handleAdditionalPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !auth.currentUser || !isPremium) return;
+
+    if ((formData.photoURLs?.length || 0) >= 3) {
+      alert('Limite de 3 fotos adicionais atingido.');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      await new Promise((resolve) => (img.onload = resolve));
+
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 800;
+      const MAX_HEIGHT = 800;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+
+      const blob = await new Promise<Blob | null>((resolve) => 
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.6)
+      );
+
+      if (!blob) throw new Error('Falha ao processar imagem');
+
+      const storageRef = ref(storage, `vehicles/${auth.currentUser.uid}/${Date.now()}_extra.jpg`);
+      const snapshot = await uploadBytes(storageRef, blob);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      
+      setFormData({ 
+        ...formData, 
+        photoURLs: [...(formData.photoURLs || []), downloadURL] 
+      });
+    } catch (error) {
+      console.error('Extra photo upload error:', error);
+      alert('Erro ao carregar foto extra.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const removeExtraPhoto = async (url: string) => {
+    try {
+      const photoRef = ref(storage, url);
+      await deleteObject(photoRef);
+      setFormData({
+        ...formData,
+        photoURLs: formData.photoURLs?.filter(u => u !== url) || []
+      });
+    } catch (error) {
+      console.error("Error removing extra photo:", error);
+    }
+  };
   const brands = useMemo(() => {
     return Object.keys(VEHICLE_DATA[formData.type]);
   }, [formData.type]);
@@ -1367,13 +2142,21 @@ function VehicleSettings({
             </div>
           ))}
 
-          <button 
-            onClick={handleAddNew}
-            className="w-full py-4 border-2 border-dashed border-white/5 rounded-2xl flex items-center justify-center gap-2 text-zinc-500 hover:text-white hover:border-white/10 transition-all"
-          >
-            <Plus className="w-5 h-5" />
-            <span className="text-sm font-bold uppercase tracking-widest">Adicionar Novo Veículo</span>
-          </button>
+          {canAddMore ? (
+            <button 
+              onClick={handleAddNew}
+              className="w-full py-4 border-2 border-dashed border-white/5 rounded-2xl flex items-center justify-center gap-2 text-zinc-500 hover:text-white hover:border-white/10 transition-all"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="text-sm font-bold uppercase tracking-widest">Adicionar Novo Veículo</span>
+            </button>
+          ) : (
+            <div className="p-8 bg-yellow-500/5 border border-dashed border-yellow-500/20 rounded-2xl flex flex-col items-center gap-2 text-yellow-500/40 text-center">
+              <Lock className="w-6 h-6" />
+              <span className="text-[10px] font-black uppercase tracking-widest">Limite de 1 veículo atingido</span>
+              <p className="text-[9px] font-bold uppercase tracking-tighter">Assine o Premium para garagem ilimitada</p>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1408,12 +2191,26 @@ function VehicleSettings({
                 </div>
               )}
             </div>
-            <label className="absolute -bottom-2 -right-2 w-10 h-10 bg-brand-primary rounded-xl flex items-center justify-center cursor-pointer shadow-lg hover:bg-red-500 transition-colors active:scale-90">
+            <label className={`absolute -bottom-2 -right-2 w-10 h-10 rounded-xl flex items-center justify-center transition-colors active:scale-90 shadow-lg ${isPremium ? 'bg-brand-primary cursor-pointer hover:bg-red-500' : 'bg-zinc-800 cursor-not-allowed'}`}>
               <Plus className="w-5 h-5 text-white" />
-              <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} disabled={isUploading} />
+              <input 
+                type="file" 
+                className="hidden" 
+                accept="image/*" 
+                onChange={handlePhotoUpload} 
+                disabled={isUploading || !isPremium} 
+              />
             </label>
           </div>
-          <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Foto do Veículo</p>
+          {!isPremium && (
+            <div className="flex items-center gap-1.5 text-yellow-500/50">
+              <Lock className="w-3 h-3" />
+              <p className="text-[9px] font-bold uppercase tracking-widest">Foto real disponível apenas no Premium</p>
+            </div>
+          )}
+          <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">
+            {isPremium ? 'Toque no + para alterar' : 'Foto padrão do veículo'}
+          </p>
         </div>
 
         <div className="space-y-1.5">
@@ -1447,6 +2244,37 @@ function VehicleSettings({
             placeholder="Ex: Foguete Vermelho"
             className="w-full bg-zinc-900 border border-white/5 rounded-xl p-4 text-white placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary/50 transition-colors"
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-1">Fotos Extras (Premium - Máx 3)</label>
+          <div className="grid grid-cols-3 gap-2">
+            {formData.photoURLs?.map((url, idx) => (
+              <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-white/5">
+                <img src={url} alt={`Extra ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <button 
+                  type="button"
+                  onClick={() => removeExtraPhoto(url)}
+                  className="absolute top-1 right-1 p-1 bg-black/60 rounded-lg text-white hover:text-red-500"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            {isPremium && (formData.photoURLs?.length || 0) < 3 && (
+              <label className="aspect-square rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-brand-primary/50 transition-all text-zinc-600 hover:text-brand-primary/50">
+                <ImageIcon className="w-5 h-5" />
+                <span className="text-[8px] font-black uppercase">Adicionar</span>
+                <input type="file" className="hidden" accept="image/*" onChange={handleAdditionalPhotoUpload} disabled={isUploading} />
+              </label>
+            )}
+            {!isPremium && (
+              <div className="aspect-square rounded-xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center gap-1 text-zinc-800">
+                <Lock className="w-5 h-5" />
+                <span className="text-[8px] font-black uppercase">Bloqueado</span>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -1531,92 +2359,141 @@ function VehicleSettings({
 function DuelComparison({ challenge }: { challenge: Challenge }) {
   if (!challenge.opponentResult) return null;
 
-  const data = [
-    { name: 'Tempo (s)', [challenge.creatorName]: challenge.result.time, Você: challenge.opponentResult.time },
-    { name: 'Velo. Máx (km/h)', [challenge.creatorName]: challenge.result.maxSpeed, Você: challenge.opponentResult.maxSpeed },
-    { name: 'Velo. Média (km/h)', [challenge.creatorName]: challenge.result.avgSpeed, Você: challenge.opponentResult.avgSpeed },
-  ];
+  const isWinner = challenge.opponentResult.time < challenge.result.time;
 
   // Prepare chart data (speed over time)
   const chartData = challenge.result.path.map((p, i) => ({
     time: i,
-    [challenge.creatorName]: p.speed,
-    Você: challenge.opponentResult?.path[i]?.speed || 0
+    [challenge.creatorName]: p.speed * 3.6,
+    Você: challenge.opponentResult?.path[i]?.speed * 3.6 || 0
   }));
 
-  const isWinner = challenge.opponentResult.time < challenge.result.time;
+  const creatorChartData = challenge.result.path.map((p, i) => ({
+    time: i,
+    speed: p.speed * 3.6
+  }));
+
+  const opponentChartData = challenge.opponentResult.path.map((p, i) => ({
+    time: i,
+    speed: p.speed * 3.6
+  }));
 
   return (
-    <div className="flex-1 flex flex-col p-6 space-y-6 overflow-y-auto">
-      <div className="flex flex-col items-center text-center space-y-2">
-        <div className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg ${isWinner ? 'bg-brand-secondary shadow-green-600/20' : 'bg-brand-primary shadow-red-600/20'}`}>
-          <Trophy className={`w-8 h-8 ${isWinner ? 'text-zinc-950' : 'text-white'}`} />
+    <div className="flex-1 flex flex-col p-6 space-y-8 overflow-y-auto bg-zinc-950">
+      <div className="flex flex-col items-center text-center space-y-3">
+        <motion.div 
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          className={`w-20 h-20 rounded-full flex items-center justify-center shadow-2xl ${isWinner ? 'bg-brand-secondary shadow-green-500/30' : 'bg-brand-primary shadow-red-500/30'}`}
+        >
+          <Trophy className={`w-10 h-10 ${isWinner ? 'text-zinc-950' : 'text-white'}`} />
+        </motion.div>
+        <div className="space-y-1">
+          <h2 className="text-3xl font-display font-black italic text-white uppercase tracking-tighter">
+            {isWinner ? 'VITÓRIA!' : 'DERROTA'}
+          </h2>
+          <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">Duelo de Performance</p>
         </div>
-        <h2 className="text-2xl font-display font-black italic text-white uppercase italic">
-          {isWinner ? 'VOCÊ VENCEU!' : 'NÃO FOI DESSA VEZ'}
-        </h2>
-        <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Duelo Finalizado</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         {/* Creator Card */}
-        <div className="glass-panel rounded-2xl p-4 border-white/5 space-y-3">
-          <div className="flex items-center gap-2">
-            <User className="w-3 h-3 text-zinc-500" />
-            <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest truncate">{challenge.creatorName}</span>
+        <div className={`relative glass-panel rounded-2xl p-5 border transition-all ${!isWinner ? 'border-brand-primary/30 bg-brand-primary/5 ring-1 ring-brand-primary/20' : 'border-white/5'}`}>
+          {!isWinner && (
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-primary text-white text-[8px] font-black px-3 py-1 rounded-full shadow-lg uppercase tracking-widest">
+              VENCEDOR
+            </div>
+          )}
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center">
+              <User className="w-3 h-3 text-zinc-500" />
+            </div>
+            <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest truncate">{challenge.creatorName}</span>
           </div>
           <div className="space-y-1">
-            <span className="text-[8px] font-bold text-zinc-600 uppercase">Tempo</span>
-            <p className="text-2xl font-display font-black text-white italic">{challenge.result.time.toFixed(2)}s</p>
+            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">Tempo Final</span>
+            <p className={`text-3xl font-display font-black italic leading-none ${!isWinner ? 'text-brand-primary' : 'text-white'}`}>
+              {challenge.result.time.toFixed(2)}s
+            </p>
           </div>
-          <div className="text-[9px] text-zinc-500 font-bold uppercase">
-            {Math.round(challenge.result.maxSpeed)} km/h máx
+          <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-end">
+            <div className="space-y-0.5">
+              <span className="text-[8px] font-bold text-zinc-600 uppercase">Velo. Máx</span>
+              <p className="text-sm font-display font-bold text-zinc-300">{Math.round(challenge.result.maxSpeed)} <span className="text-[10px]">km/h</span></p>
+            </div>
           </div>
         </div>
 
         {/* Opponent Card (You) */}
-        <div className={`glass-panel rounded-2xl p-4 space-y-3 border ${isWinner ? 'border-brand-secondary/30 bg-brand-secondary/5' : 'border-white/5'}`}>
-          <div className="flex items-center gap-2">
-            <User className="w-3 h-3 text-brand-accent" />
-            <span className="text-[9px] font-black text-brand-accent uppercase tracking-widest">VOCÊ</span>
+        <div className={`relative glass-panel rounded-2xl p-5 border transition-all ${isWinner ? 'border-brand-secondary/30 bg-brand-secondary/5 ring-1 ring-brand-secondary/20' : 'border-white/5'}`}>
+          {isWinner && (
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-secondary text-zinc-950 text-[8px] font-black px-3 py-1 rounded-full shadow-lg uppercase tracking-widest">
+              VENCEDOR
+            </div>
+          )}
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-6 h-6 rounded-full bg-brand-accent/20 flex items-center justify-center">
+              <User className="w-3 h-3 text-brand-accent" />
+            </div>
+            <span className="text-[10px] font-black text-brand-accent uppercase tracking-widest">VOCÊ</span>
           </div>
           <div className="space-y-1">
-            <span className="text-[8px] font-bold text-zinc-600 uppercase">Tempo</span>
-            <p className={`text-2xl font-display font-black italic ${isWinner ? 'text-brand-secondary' : 'text-white'}`}>{challenge.opponentResult.time.toFixed(2)}s</p>
+            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">Tempo Final</span>
+            <p className={`text-3xl font-display font-black italic leading-none ${isWinner ? 'text-brand-secondary' : 'text-white'}`}>
+              {challenge.opponentResult.time.toFixed(2)}s
+            </p>
           </div>
-          <div className="text-[9px] text-zinc-500 font-bold uppercase">
-            {Math.round(challenge.opponentResult.maxSpeed)} km/h máx
+          <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-end">
+            <div className="space-y-0.5">
+              <span className="text-[8px] font-bold text-zinc-600 uppercase">Velo. Máx</span>
+              <p className="text-sm font-display font-bold text-zinc-300">{Math.round(challenge.opponentResult.maxSpeed)} <span className="text-[10px]">km/h</span></p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h3 className="text-[10px] font-black text-zinc-600 uppercase tracking-widest px-1">Comparativo de Velocidade</h3>
-        <div className="h-[200px] w-full bg-zinc-900/50 rounded-2xl p-4 border border-white/5">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between px-1">
+          <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Gráfico Comparativo</h3>
+          <div className="flex gap-3">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-zinc-600" />
+              <span className="text-[8px] font-bold text-zinc-600 uppercase">{challenge.creatorName}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-brand-accent" />
+              <span className="text-[8px] font-bold text-zinc-600 uppercase">VOCÊ</span>
+            </div>
+          </div>
+        </div>
+        <div className="h-[220px] w-full bg-zinc-900/30 rounded-3xl p-6 border border-white/5 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-b from-brand-accent/5 to-transparent pointer-events-none" />
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="colorCreator" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#71717a" stopOpacity={0.3}/>
+                  <stop offset="5%" stopColor="#71717a" stopOpacity={0.2}/>
                   <stop offset="95%" stopColor="#71717a" stopOpacity={0}/>
                 </linearGradient>
                 <linearGradient id="colorYou" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#00f2ff" stopOpacity={0.3}/>
+                  <stop offset="5%" stopColor="#00f2ff" stopOpacity={0.2}/>
                   <stop offset="95%" stopColor="#00f2ff" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#18181b" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
               <XAxis hide />
               <YAxis 
                 stroke="#3f3f46" 
-                fontSize={10} 
+                fontSize={9} 
                 tickFormatter={(val) => `${val}`}
                 axisLine={false}
                 tickLine={false}
+                domain={[0, 'auto']}
               />
               <RechartsTooltip 
-                contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '8px', fontSize: '10px' }}
-                itemStyle={{ fontWeight: 'bold' }}
+                contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '12px', fontSize: '10px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }}
+                itemStyle={{ fontWeight: 'bold', padding: '2px 0' }}
+                cursor={{ stroke: '#ffffff10', strokeWidth: 1 }}
               />
               <Area 
                 type="monotone" 
@@ -1625,6 +2502,7 @@ function DuelComparison({ challenge }: { challenge: Challenge }) {
                 fillOpacity={1} 
                 fill="url(#colorCreator)" 
                 strokeWidth={2}
+                strokeDasharray="5 5"
               />
               <Area 
                 type="monotone" 
@@ -1633,15 +2511,46 @@ function DuelComparison({ challenge }: { challenge: Challenge }) {
                 fillOpacity={1} 
                 fill="url(#colorYou)" 
                 strokeWidth={3}
+                animationDuration={1500}
               />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h3 className="text-[10px] font-black text-zinc-600 uppercase tracking-widest px-1">Trajetos Comparados</h3>
-        <div className="h-[200px] rounded-2xl overflow-hidden border border-white/5">
+      <div className="space-y-4">
+        <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] px-1">Análise Lado a Lado</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <div className="h-[120px] bg-zinc-900/50 rounded-2xl p-3 border border-white/5">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={creatorChartData}>
+                  <Area type="monotone" dataKey="speed" stroke="#71717a" fill="#71717a" fillOpacity={0.1} strokeWidth={2} />
+                  <XAxis hide />
+                  <YAxis hide domain={[0, 'auto']} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-[8px] font-black text-center text-zinc-600 uppercase tracking-widest">Aceleração {challenge.creatorName}</p>
+          </div>
+          <div className="space-y-2">
+            <div className="h-[120px] bg-zinc-900/50 rounded-2xl p-3 border border-white/5">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={opponentChartData}>
+                  <Area type="monotone" dataKey="speed" stroke="#00f2ff" fill="#00f2ff" fillOpacity={0.1} strokeWidth={2} />
+                  <XAxis hide />
+                  <YAxis hide domain={[0, 'auto']} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-[8px] font-black text-center text-brand-accent uppercase tracking-widest">Sua Aceleração</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4 pb-8">
+        <h3 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] px-1">Trajetos Comparados</h3>
+        <div className="h-[220px] rounded-3xl overflow-hidden border border-white/5 shadow-2xl">
           <MapContainer 
             center={[challenge.result.path[0].latitude, challenge.result.path[0].longitude]} 
             zoom={16} 
@@ -1656,12 +2565,13 @@ function DuelComparison({ challenge }: { challenge: Challenge }) {
               positions={challenge.result.path.map(p => [p.latitude, p.longitude] as [number, number])} 
               color="#71717a" 
               weight={4}
-              opacity={0.5}
+              opacity={0.4}
+              dashArray="8, 8"
             />
             <Polyline 
               positions={challenge.opponentResult.path.map(p => [p.latitude, p.longitude] as [number, number])} 
               color="#00f2ff" 
-              weight={4}
+              weight={5}
             />
           </MapContainer>
         </div>
@@ -1825,6 +2735,7 @@ const PRESETS = [
   { id: '1km', label: '1km', mode: 'distance' as const, target: 1000, startSpeed: 0, description: 'Velocidade final máxima', icon: Flag, color: 'from-zinc-500 to-zinc-400', type: 'standing' },
   { id: 'free', label: 'Modo Livre', mode: 'free' as const, target: 0, startSpeed: 0, description: 'Ajuste mecânico e telemetria', icon: Activity, color: 'from-zinc-700 to-zinc-600', type: 'manual' },
   { id: 'custom', label: 'Personalizada', mode: 'custom' as const, target: 0, startSpeed: 0, description: 'Crie seu próprio teste', icon: Settings, color: 'from-brand-primary to-brand-secondary', type: 'custom' },
+  { id: 'trip', label: 'Modo Viagem', mode: 'trip' as const, target: 0, startSpeed: 0, description: 'Média de viagem e análise de percurso', icon: MapIcon, color: 'from-blue-600 to-indigo-600', type: 'manual' },
 ];
 
 // --- Components ---
@@ -2013,6 +2924,7 @@ export default function App() {
   } = usePerformanceTimer();
 
   const [screen, setScreen] = useState<Screen>('home');
+  const [selectedProfileUid, setSelectedProfileUid] = useState<string | null>(null);
   const [activeConfig, setActiveConfig] = useState<typeof PRESETS[0] | null>(null);
   const [customConfig, setCustomConfig] = useState<{
     type: 'speed' | 'distance';
@@ -2022,6 +2934,7 @@ export default function App() {
   const [useRollout, setUseRollout] = useState(true);
   const [activeChallenge, setActiveChallenge] = useState<Challenge | null>(null);
   const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -2063,17 +2976,22 @@ export default function App() {
         const userRef = doc(db, 'users', firebaseUser.uid);
         try {
           const userSnap = await getDoc(userRef);
-          const userData = userSnap.data();
+          let userData = userSnap.data() as UserProfile | undefined;
           
           if (!userSnap.exists()) {
-            await setDoc(userRef, {
+            userData = {
               uid: firebaseUser.uid,
-              email: firebaseUser.email,
               displayName: firebaseUser.displayName,
               photoURL: firebaseUser.photoURL,
               termsAccepted: false,
               termsVersion: TERMS_VERSION,
+              isPremium: false,
               createdAt: new Date().toISOString()
+            };
+            await setDoc(userRef, userData);
+            // Store email privately
+            await setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'data'), {
+              email: firebaseUser.email
             });
             setScreen('terms');
           } else if (!userData?.termsAccepted || userData?.termsVersion !== TERMS_VERSION) {
@@ -2081,6 +2999,7 @@ export default function App() {
           } else {
             setScreen('home');
           }
+          setUserProfile(userData || null);
 
           // Real-time vehicles sync
           const vehiclesRef = collection(db, 'vehicles');
@@ -2139,12 +3058,16 @@ export default function App() {
     }
   };
 
-  const handleUpdateProfile = async (data: { displayName?: string, photoURL?: string }) => {
+  const handleUpdateProfile = async (data: { displayName?: string, photoURL?: string, isPremium?: boolean, bio?: string }) => {
     if (!user) return;
     try {
       await setDoc(doc(db, 'users', user.uid), data, { merge: true });
       // Update local user state to reflect changes in UI immediately
-      setUser(prev => prev ? { ...prev, ...data } as FirebaseUser : null);
+      if (data.displayName || data.photoURL) {
+        setUser(prev => prev ? { ...prev, ...data } as FirebaseUser : null);
+      }
+      // Update userProfile state
+      setUserProfile(prev => prev ? { ...prev, ...data } : null);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}`);
     }
@@ -2308,9 +3231,27 @@ export default function App() {
     } else if (lastResult && !activeChallenge) {
       // Save solo run result to Firestore
       if (user) {
-        const runData = { ...lastResult, uid: user.uid };
-        addDoc(collection(db, 'runs'), runData)
-          .catch(err => handleFirestoreError(err, OperationType.WRITE, 'runs'));
+        const saveRun = async () => {
+          if (!userProfile?.isPremium) {
+            // Check current runs
+            const runsRef = collection(db, 'runs');
+            const q = query(runsRef, where('uid', '==', user.uid), orderBy('timestamp', 'desc'));
+            const snapshot = await getDocs(q);
+            
+            if (snapshot.size >= 2) {
+              // Delete oldest runs to keep only 1 (so adding the new one makes it 2)
+              const docsToDelete = snapshot.docs.slice(1); 
+              for (const d of docsToDelete) {
+                await deleteDoc(doc(db, 'runs', d.id));
+              }
+            }
+          }
+          
+          const runData = { ...lastResult, uid: user.uid };
+          await addDoc(collection(db, 'runs'), runData);
+        };
+        
+        saveRun().catch(err => handleFirestoreError(err, OperationType.WRITE, 'runs'));
 
         // Save to rankings if it's a valid 0-100 run
         if (
@@ -2345,6 +3286,10 @@ export default function App() {
           console.error("Error saving to localStorage:", e);
         }
       }
+
+      if (lastResult.config.mode === 'trip') {
+        setScreen('trip-view');
+      }
     }
   }, [lastResult]);
 
@@ -2353,6 +3298,17 @@ export default function App() {
     
     if (preset.id === 'custom') {
       setScreen('custom-setup');
+      return;
+    }
+
+    if (preset.id === 'trip') {
+      setScreen('timer');
+      startRun({
+        mode: 'trip',
+        target: 0,
+        startSpeed: 0,
+        useRollout: false
+      });
       return;
     }
 
@@ -2600,6 +3556,7 @@ export default function App() {
           >
             <VehicleSettings 
               vehicles={vehicles} 
+              userProfile={userProfile}
               onSave={saveVehicle} 
               onDelete={deleteVehicle}
               onBack={() => setScreen('settings')} 
@@ -2615,6 +3572,7 @@ export default function App() {
           >
             <ProfileSettings 
               user={user} 
+              userProfile={userProfile}
               onUpdate={handleUpdateProfile} 
               onBack={() => setScreen('settings')} 
             />
@@ -2630,6 +3588,50 @@ export default function App() {
             <RegionalRanking 
               userLocation={lastPosition} 
               onBack={() => setScreen('home')} 
+              onViewProfile={(uid) => {
+                setSelectedProfileUid(uid);
+                setScreen('public-profile');
+              }}
+            />
+          </motion.div>
+        ) : screen === 'search' ? (
+          <motion.div
+            key="search"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <SearchUsers 
+              currentUserId={user?.uid}
+              onViewProfile={(uid) => {
+                setSelectedProfileUid(uid);
+                setScreen('public-profile');
+              }}
+            />
+          </motion.div>
+        ) : screen === 'feed' ? (
+          <motion.div
+            key="feed"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <Feed />
+          </motion.div>
+        ) : screen === 'public-profile' ? (
+          <motion.div
+            key="public-profile"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <PublicProfile 
+              uid={selectedProfileUid || ''} 
+              currentUserId={user?.uid}
+              onBack={() => setScreen('regional-ranking')} 
             />
           </motion.div>
         ) : screen === 'history' ? (
@@ -2643,6 +3645,7 @@ export default function App() {
             <HistoryView 
               user={user} 
               isGuest={isGuest}
+              isPremium={userProfile?.isPremium}
               onBack={() => setScreen('home')} 
             />
           </motion.div>
@@ -2692,9 +3695,14 @@ export default function App() {
                   )}
                 </div>
                 <div>
-                  <h1 className="font-display font-extrabold text-2xl tracking-tighter italic leading-none">
-                    DRAG<span className="text-brand-primary">FIRE</span>
-                  </h1>
+                  <div className="flex items-center gap-2">
+                    <h1 className="font-display font-extrabold text-2xl tracking-tighter italic leading-none">
+                      DRAG<span className="text-brand-primary">FIRE</span>
+                    </h1>
+                    {userProfile?.isPremium && (
+                      <span className="bg-yellow-500 text-zinc-950 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shadow-lg shadow-yellow-500/20">Premium</span>
+                    )}
+                  </div>
                   <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">
                     {isGuest ? 'Modo Visitante' : (vehicle ? `${vehicle.nickname} • ${vehicle.model}` : user?.displayName || 'Piloto')}
                   </p>
@@ -2719,7 +3727,7 @@ export default function App() {
             </header>
 
             {/* Home Content */}
-            <main className="flex-1 overflow-y-auto p-4 space-y-6">
+            <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
               <section className="bg-brand-primary/5 rounded-2xl p-4 border border-brand-primary/20 shadow-lg shadow-brand-primary/5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-brand-primary/20 rounded-xl flex items-center justify-center">
@@ -2737,6 +3745,54 @@ export default function App() {
                   </button>
                 </div>
               </section>
+
+              <div className="grid grid-cols-2 gap-3">
+                <section 
+                  onClick={() => setScreen('fuel-calculator')}
+                  className="bg-zinc-900/50 rounded-2xl p-4 border border-white/5 cursor-pointer hover:bg-zinc-900 transition-all active:scale-[0.98]"
+                >
+                  <div className="flex flex-col gap-3">
+                    <div className="w-10 h-10 bg-brand-primary/10 rounded-xl flex items-center justify-center">
+                      <Fuel className="w-5 h-5 text-brand-primary" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white">Consumo</h4>
+                      <p className="text-[9px] text-zinc-500 uppercase font-bold">Calculadora km/L</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section 
+                  onClick={() => setScreen('history')}
+                  className="bg-zinc-900/50 rounded-2xl p-4 border border-white/5 cursor-pointer hover:bg-zinc-900 transition-all active:scale-[0.98]"
+                >
+                  <div className="flex flex-col gap-3">
+                    <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center">
+                      <History className="w-5 h-5 text-zinc-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white">Histórico</h4>
+                      <p className="text-[9px] text-zinc-500 uppercase font-bold">Suas puxadas</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section 
+                  onClick={() => setScreen('ai-editor')}
+                  className="bg-brand-primary/10 rounded-2xl p-4 border border-brand-primary/20 cursor-pointer hover:bg-brand-primary/20 transition-all active:scale-[0.98] col-span-2"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-brand-primary rounded-xl flex items-center justify-center shadow-lg shadow-brand-primary/20">
+                      <Sparkles className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-bold text-white">Editor de Fotos AI</h4>
+                      <p className="text-[10px] text-brand-primary uppercase font-bold">Melhore suas fotos com Gemini</p>
+                    </div>
+                    <Wand2 className="w-5 h-5 text-brand-primary animate-pulse" />
+                  </div>
+                </section>
+              </div>
 
               {(!accuracy || accuracy > 20) && (
                 <motion.div 
@@ -2897,6 +3953,76 @@ export default function App() {
             </header>
             <DuelComparison challenge={activeChallenge} />
           </motion.div>
+        ) : screen === 'trip-view' && lastResult ? (
+          <motion.div
+            key="trip-view"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <header className="p-3 flex items-center justify-between border-b border-white/5 bg-zinc-900/50 backdrop-blur-md z-10">
+              <button 
+                onClick={() => {
+                  reset();
+                  setScreen('home');
+                }}
+                className="p-1.5 hover:bg-white/5 rounded-full transition-colors flex items-center gap-1.5 text-zinc-400 hover:text-white"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Início</span>
+              </button>
+              <h1 className="text-[10px] font-black text-brand-primary uppercase tracking-widest">Análise de Viagem</h1>
+              <button 
+                className="p-1.5 hover:bg-white/5 rounded-full transition-colors"
+                onClick={() => {
+                  alert('Relatório de viagem copiado!');
+                }}
+              >
+                <Share2 className="w-4 h-4 text-zinc-400" />
+              </button>
+            </header>
+            <div className="flex-1 overflow-y-auto p-4">
+              <TripAnalysis result={lastResult} />
+              
+              <div className="h-64 rounded-2xl overflow-hidden border border-white/5 mt-6 mb-20">
+                <MapContainer 
+                  center={[lastResult.path[0]?.latitude || 0, lastResult.path[0]?.longitude || 0]} 
+                  zoom={13} 
+                  style={{ height: '100%', width: '100%' }}
+                  zoomControl={false}
+                >
+                  <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+                  <Polyline 
+                    positions={lastResult.path.map(p => [p.latitude, p.longitude])} 
+                    color="#ef4444" 
+                    weight={4}
+                    opacity={0.8}
+                  />
+                </MapContainer>
+              </div>
+            </div>
+          </motion.div>
+        ) : screen === 'fuel-calculator' ? (
+          <motion.div
+            key="fuel-calculator"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <FuelCalculator onBack={() => setScreen('home')} />
+          </motion.div>
+        ) : screen === 'ai-editor' ? (
+          <motion.div
+            key="ai-editor"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <AIPhotoEditor onBack={() => setScreen('home')} />
+          </motion.div>
         ) : (
           <motion.div 
             key="timer"
@@ -3010,13 +4136,13 @@ export default function App() {
                     </div>
                   </div>
 
-                  {activeConfig?.mode === 'free' && isRunning && (
+                  {((activeConfig?.mode === 'free' || activeConfig?.mode === 'trip') && isRunning) && (
                     <button
                       onClick={manualStop}
-                      className="absolute -bottom-20 left-1/2 -translate-x-1/2 w-full max-w-[200px] py-3 bg-red-500 text-white font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.3)]"
+                      className={`absolute -bottom-20 left-1/2 -translate-x-1/2 w-full max-w-[200px] py-3 ${activeConfig?.mode === 'trip' ? 'bg-blue-600' : 'bg-red-500'} text-white font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all`}
                     >
                       <RotateCcw className="w-5 h-5" />
-                      FINALIZAR
+                      {activeConfig?.mode === 'trip' ? 'ENCERRAR VIAGEM' : 'FINALIZAR'}
                     </button>
                   )}
                 </div>
@@ -3061,25 +4187,29 @@ export default function App() {
                       <h3 className={`text-lg font-bold uppercase tracking-wider mb-1 transition-colors duration-500 ${isReady ? 'text-brand-secondary' : 'text-zinc-500'}`}>
                         {activeConfig?.mode === 'free'
                           ? 'MODO LIVRE - PRONTO'
-                          : activeConfig?.id === '100-200' 
-                            ? (isReady ? 'PRONTO PARA ACELERAR' : 'ACELERE ATÉ 100KM/H')
-                            : (isReady ? 'SINAL VERDE: ARRANQUE!' : 'PARE O VEÍCULO')}
+                          : activeConfig?.mode === 'trip'
+                            ? 'MODO VIAGEM - PRONTO'
+                            : activeConfig?.id === '100-200' 
+                              ? (isReady ? 'PRONTO PARA ACELERAR' : 'ACELERE ATÉ 100KM/H')
+                              : (isReady ? 'SINAL VERDE: ARRANQUE!' : 'PARE O VEÍCULO')}
                       </h3>
                       <p className="text-zinc-500 text-[10px] font-medium mb-4">
                         {activeConfig?.mode === 'free'
                           ? 'Inicie a puxada manualmente quando desejar.'
-                          : activeConfig?.id === '100-200' 
-                            ? `Aguardando atingir ${activeConfig.startSpeed} km/h...` 
-                            : (isReady ? 'O cronômetro iniciará ao detectar movimento.' : 'O teste só começa com o carro totalmente parado.')}
+                          : activeConfig?.mode === 'trip'
+                            ? 'Inicie a viagem para monitorar sua performance.'
+                            : activeConfig?.id === '100-200' 
+                              ? `Aguardando atingir ${activeConfig.startSpeed} km/h...` 
+                              : (isReady ? 'O cronômetro iniciará ao detectar movimento.' : 'O teste só começa com o carro totalmente parado.')}
                       </p>
 
-                      {activeConfig?.mode === 'free' && (
+                      {(activeConfig?.mode === 'free' || activeConfig?.mode === 'trip') && (
                         <button
                           onClick={manualStart}
-                          className="w-full py-4 bg-brand-primary text-zinc-950 font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(0,242,255,0.3)]"
+                          className={`w-full py-4 ${activeConfig?.mode === 'trip' ? 'bg-blue-600' : 'bg-brand-primary'} text-zinc-950 font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all`}
                         >
                           <Play className="w-6 h-6 fill-current" />
-                          INICIAR PUXADA
+                          {activeConfig?.mode === 'trip' ? 'INICIAR VIAGEM' : 'INICIAR PUXADA'}
                         </button>
                       )}
 
@@ -3316,6 +4446,20 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {(user || isGuest) && screen !== 'login' && screen !== 'terms' && !isRunning && (
+        <BottomNav 
+          activeScreen={screen} 
+          isGuest={isGuest}
+          onNavigate={(s) => {
+            if (s === 'public-profile' && user) {
+              setSelectedProfileUid(user.uid);
+            }
+            setScreen(s);
+          }} 
+          userPhoto={user?.photoURL || undefined}
+        />
+      )}
     </div>
   </ErrorBoundary>
 );

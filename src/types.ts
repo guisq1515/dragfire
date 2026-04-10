@@ -1,4 +1,4 @@
-export type RunMode = 'speed' | 'distance' | 'free' | 'custom';
+export type RunMode = 'speed' | 'distance' | 'free' | 'custom' | 'trip';
 
 export interface RunConfig {
   mode: RunMode;
@@ -63,6 +63,23 @@ export interface GPSPoint {
   timestamp: number;
 }
 
+export interface UserProfile {
+  uid: string;
+  email?: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  termsAccepted: boolean;
+  termsVersion: string;
+  isPremium?: boolean;
+  createdAt: string;
+  bio?: string;
+  instagram?: string;
+  isVerified?: boolean;
+  isPrivate?: boolean;
+  followersCount?: number;
+  followingCount?: number;
+}
+
 export interface Vehicle {
   id?: string;
   uid?: string;
@@ -72,7 +89,14 @@ export interface Vehicle {
   year: string;
   nickname: string;
   photoURL?: string;
+  photoURLs?: string[]; // Multiple photos for premium
   active?: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface Follow {
+  followerId: string;
+  followingId: string;
+  timestamp: number;
 }
